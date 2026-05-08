@@ -1,0 +1,25 @@
+[package]
+name = "orchestrator"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "orchestrator"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1.0.102"
+axum = "0.8.6"
+chrono = { version = "0.4.44", features = ["serde"] }
+clap = { version = "4.5.60", features = ["derive"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0.149"
+regex = "1.12.3"
+sqlx = { version = "0.8.6", features = ["runtime-tokio-rustls", "postgres", "chrono", "uuid"] }
+thiserror = "2.0.18"
+tokio = { version = "1.49.0", features = ["full"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+uuid = { version = "1.18.1", features = ["v4", "serde"] }
+reviewagent = { path = "../ReviewAgent" }
+fixagent = { path = "../FixAgent" }
