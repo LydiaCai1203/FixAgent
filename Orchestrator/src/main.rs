@@ -151,7 +151,7 @@ async fn main() -> Result<()> {
             status,
         } => {
             let result = service
-                .list_issues(project_key, platform, pr_number, status)
+                .list_issues(Some(project_key), Some(platform), Some(pr_number), status)
                 .await?;
             println!("{}", serde_json::to_string_pretty(&result)?);
         }

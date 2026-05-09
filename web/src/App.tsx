@@ -393,6 +393,27 @@ export default function App() {
     return workflowRuns.find((item) => item.platform === pr.platform && item.pr_number === pr.pr_number) ?? null;
   }
 
+  function reviewTooltipForPr(pr: PullRequestSummary) {
+    const workflow = workflowStatusForPr(pr);
+    if (!workflow) {
+      return 'Run review';
+    }
+
+    const relatedRounds = workflowRounds.filter((round) => round.workflow_run_id === workflow.id);
+    const roundLines = relatedRounds.map((round) => {
+      const timing = round.completed_at ? `Completed ${formatDateTime(round.completed_at)}` : 'Running';
+      return `Round ${round.round_number}: ${round.status} | ${round.summary ?? 'No round summary yet.'} | ${timing}`;
+    });
+
+    return [
+      `Status: ${workflow.status}`,
+      `Started: ${formatDateTime(workflow.started_at)}`,
+      workflow.completed_at ? `Completed: ${formatDateTime(workflow.completed_at)}` : 'Completed: Running',
+      `Summary: ${workflow.summary ?? 'No workflow summary yet.'}`,
+      ...roundLines,
+    ].join('\n');
+  }
+
   return (
     <div className="brew-shell">
       <aside className="brew-sidebar">
@@ -510,14 +531,13 @@ export default function App() {
                               event.stopPropagation();
                               void handleRunReview(pr);
                             }}
-                            title={workflow?.summary ?? (reviewRunningPrIds.includes(pr.id) ? 'Review running' : 'Run review')}
+                            title={reviewTooltipForPr(pr)}
                           >
                             {reviewRunningPrIds.includes(pr.id) ? '...' : 'R'}
                           </button>
                         </div>
                       </div>
                     <p className="brew-card-meta">{pr.pr_url}</p>
-                    {workflow ? <div className="brew-pr-status-line">{workflow.status}: {workflow.summary ?? 'No summary yet'}</div> : null}
                     <div className="brew-chip-row">
                       <span className="brew-chip">Bugs {summary.total}</span>
                       <span className="brew-chip">Open {summary.open}</span>
@@ -532,46 +552,6 @@ export default function App() {
             </div>
           </section>
         </section>
-
-        {selectedPr ? (
-          <section className="brew-panel brew-review-status-panel">
-            <div className="brew-panel-header">
-              <div>
-                <h3>Review Status</h3>
-              </div>
-            </div>
-
-            {workflowStatusForPr(selectedPr) ? (
-              <div className="brew-review-status-body">
-                <div className="brew-chip-row">
-                  <span className="brew-chip">Status {workflowStatusForPr(selectedPr)?.status}</span>
-                  <span className="brew-chip">Started {formatDateTime(workflowStatusForPr(selectedPr)?.started_at ?? '')}</span>
-                  <span className="brew-chip">Completed {workflowStatusForPr(selectedPr)?.completed_at ? formatDateTime(workflowStatusForPr(selectedPr)?.completed_at ?? '') : 'Running'}</span>
-                </div>
-                <p className="brew-review-status-summary">{workflowStatusForPr(selectedPr)?.summary ?? 'No workflow summary yet.'}</p>
-                <div className="brew-review-timeline">
-                  {workflowRounds.map((round) => (
-                    <article key={round.id} className="brew-review-step">
-                      <div className="brew-card-header">
-                        <strong>Round {round.round_number}</strong>
-                        <span className="brew-chip">{round.status}</span>
-                      </div>
-                      <p className="brew-review-status-summary">{round.summary ?? 'No round summary yet.'}</p>
-                      <div className="brew-chip-row">
-                        <span className="brew-chip">Started {formatDateTime(round.started_at)}</span>
-                        <span className="brew-chip">Completed {round.completed_at ? formatDateTime(round.completed_at) : 'Running'}</span>
-                        {round.review_run_id ? <span className="brew-chip">Review Run {round.review_run_id}</span> : null}
-                      </div>
-                    </article>
-                  ))}
-                  {workflowRounds.length === 0 ? <div className="brew-empty-block">Task created, waiting for execution details.</div> : null}
-                </div>
-              </div>
-            ) : (
-              <div className="brew-empty-block">No review task has started for this PR yet.</div>
-            )}
-          </section>
-        ) : null}
 
         {selectedPr ? (
           <section className="brew-panel brew-bug-pool-panel">
