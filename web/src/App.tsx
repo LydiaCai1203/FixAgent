@@ -85,6 +85,7 @@ export default function App() {
   const [showCreatePr, setShowCreatePr] = useState(false);
   const [newPrUrl, setNewPrUrl] = useState('');
   const [pendingProjectKeyForPr, setPendingProjectKeyForPr] = useState<string | null>(null);
+  const [openProjectMenuKey, setOpenProjectMenuKey] = useState<string | null>(null);
   const [workflowRuns, setWorkflowRuns] = useState<WorkflowRunSummary[]>([]);
   const [reviewRunningPrIds, setReviewRunningPrIds] = useState<number[]>([]);
   const [workflowRounds, setWorkflowRounds] = useState<WorkflowRoundSummary[]>([]);
@@ -360,6 +361,34 @@ export default function App() {
     }
   }
 
+  async function handleDeleteProject(project: ProjectSummary) {
+    const confirmed = window.confirm(`Delete project "${project.project_name}"?`);
+    if (!confirmed) {
+      return;
+    }
+
+    setError(null);
+    try {
+      const response = await fetch(`${API_BASE_URL}/projects`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ project_key: project.project_key }),
+      });
+      if (!response.ok) {
+        throw new Error(await readApiError(response));
+      }
+
+      if (selectedProjectKey === project.project_key) {
+        setSelectedProjectKey(null);
+        setSelectedPrId(null);
+      }
+      setOpenProjectMenuKey(null);
+      await loadProjects();
+    } catch (err) {
+      setError(toErrorMessage(err));
+    }
+  }
+
   async function handleRunReview(pr: PullRequestSummary) {
     const project = projects.find((item) => item.id === pr.project_id);
     if (!project) {
@@ -462,17 +491,40 @@ export default function App() {
                   <div className="brew-project-chip-title">{project.project_name}</div>
                   <div className="brew-project-chip-meta">{project.project_key}</div>
                 </button>
-                <button
-                  className="brew-project-chip-add"
-                  onClick={() => {
-                    setPendingProjectKeyForPr(project.project_key);
-                    setNewPrUrl('');
-                    setShowCreatePr(true);
-                  }}
-                  aria-label={`Add PR for ${project.project_name}`}
-                >
-                  +
-                </button>
+                <div className="brew-project-chip-menu-wrap">
+                  <button
+                    className="brew-project-chip-menu-button"
+                    onClick={() => {
+                      setOpenProjectMenuKey((current) => current === project.project_key ? null : project.project_key);
+                    }}
+                    aria-label={`Project actions for ${project.project_name}`}
+                  >
+                    ...
+                  </button>
+                  {openProjectMenuKey === project.project_key ? (
+                    <div className="brew-project-chip-menu">
+                      <button
+                        className="brew-project-chip-menu-item"
+                        onClick={() => {
+                          setPendingProjectKeyForPr(project.project_key);
+                          setNewPrUrl('');
+                          setShowCreatePr(true);
+                          setOpenProjectMenuKey(null);
+                        }}
+                      >
+                        Add PR
+                      </button>
+                      <button
+                        className="brew-project-chip-menu-item brew-project-chip-menu-item-danger"
+                        onClick={() => {
+                          void handleDeleteProject(project);
+                        }}
+                      >
+                        Delete Project
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
               </div>
             ))}
             {projects.length === 0 && !isLoadingProjects ? <div className="brew-empty-mini">No projects yet.</div> : null}

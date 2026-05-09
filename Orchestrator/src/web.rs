@@ -51,6 +51,11 @@ pub struct CreateProjectRequest {
 }
 
 #[derive(Debug, Deserialize)]
+pub struct DeleteProjectRequest {
+    pub project_key: String,
+}
+
+#[derive(Debug, Deserialize)]
 pub struct CreatePrRequest {
     pub project_key: String,
     pub pr_url: String,
@@ -72,7 +77,7 @@ pub struct ApiErrorBody {
 pub async fn serve_http(service: OrchestratorService, host: String, port: u16) -> anyhow::Result<()> {
     let app = Router::new()
         .route("/health", get(health))
-        .route("/projects", get(list_projects).post(create_project))
+        .route("/projects", get(list_projects).post(create_project).delete(delete_project))
         .route("/prs", get(list_prs).post(create_pr))
         .route("/reviews", post(start_review))
         .route("/issues", get(list_issues))
@@ -106,6 +111,14 @@ async fn create_project(
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let result = service.create_project(request.project_name).await?;
     Ok(Json(serde_json::json!(result)))
+}
+
+async fn delete_project(
+    State(service): State<OrchestratorService>,
+    Json(request): Json<DeleteProjectRequest>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    service.delete_project(request.project_key).await?;
+    Ok(Json(serde_json::json!({ "ok": true })))
 }
 
 async fn list_prs(

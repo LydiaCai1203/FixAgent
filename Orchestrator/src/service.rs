@@ -132,6 +132,126 @@ impl OrchestratorService {
         })
     }
 
+    pub async fn delete_project(&self, project_key: String) -> Result<()> {
+        let project_key = project_key.trim().to_string();
+        if project_key.is_empty() {
+            return Err(OrchestratorError::Config("project_key is required".to_string()));
+        }
+
+        let mut tx = self.pool.begin().await?;
+
+        let project_id = sqlx::query_scalar::<_, i64>(
+            r#"
+            SELECT id
+            FROM projects
+            WHERE project_key = $1
+            "#,
+        )
+        .bind(&project_key)
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or_else(|| OrchestratorError::Config(format!("Project not found: {}", project_key)))?;
+
+        sqlx::query(
+            r#"
+            DELETE FROM verifications
+            WHERE issue_id IN (
+                SELECT i.id
+                FROM issues i
+                JOIN pull_requests pr ON pr.id = i.pull_request_id
+                WHERE pr.project_id = $1
+            )
+            "#,
+        )
+        .bind(project_id)
+        .execute(&mut *tx)
+        .await?;
+
+        sqlx::query(
+            r#"
+            DELETE FROM fix_runs
+            WHERE issue_id IN (
+                SELECT i.id
+                FROM issues i
+                JOIN pull_requests pr ON pr.id = i.pull_request_id
+                WHERE pr.project_id = $1
+            )
+            "#,
+        )
+        .bind(project_id)
+        .execute(&mut *tx)
+        .await?;
+
+        sqlx::query(
+            r#"
+            DELETE FROM issues
+            WHERE pull_request_id IN (
+                SELECT id FROM pull_requests WHERE project_id = $1
+            )
+            "#,
+        )
+        .bind(project_id)
+        .execute(&mut *tx)
+        .await?;
+
+        sqlx::query(
+            r#"
+            DELETE FROM review_runs
+            WHERE pull_request_id IN (
+                SELECT id FROM pull_requests WHERE project_id = $1
+            )
+            "#,
+        )
+        .bind(project_id)
+        .execute(&mut *tx)
+        .await?;
+
+        sqlx::query(
+            r#"
+            DELETE FROM pull_requests
+            WHERE project_id = $1
+            "#,
+        )
+        .bind(project_id)
+        .execute(&mut *tx)
+        .await?;
+
+        sqlx::query(
+            r#"
+            DELETE FROM workflow_rounds
+            WHERE workflow_run_id IN (
+                SELECT id FROM workflow_runs WHERE project_key = $1
+            )
+            "#,
+        )
+        .bind(&project_key)
+        .execute(&mut *tx)
+        .await?;
+
+        sqlx::query(
+            r#"
+            DELETE FROM workflow_runs
+            WHERE project_key = $1
+            "#,
+        )
+        .bind(&project_key)
+        .execute(&mut *tx)
+        .await?;
+
+        sqlx::query(
+            r#"
+            DELETE FROM projects
+            WHERE id = $1
+            "#,
+        )
+        .bind(project_id)
+        .execute(&mut *tx)
+        .await?;
+
+        tx.commit().await?;
+        Ok(())
+    }
+
     pub async fn list_prs(&self, project_key: String) -> Result<Vec<PullRequestSummary>> {
         let rows = sqlx::query_as::<_, (i64, i64, String, i64, String, Option<String>, chrono::DateTime<Utc>, chrono::DateTime<Utc>)>(
             r#"
