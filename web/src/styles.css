@@ -517,9 +517,9 @@ button {
 .brew-status-dropdown {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  min-height: 26px;
-  padding: 0 10px;
+  gap: 4px;
+  height: 22px;
+  padding: 0 8px;
   border-radius: 999px;
   border: 1px solid rgba(201, 223, 114, 0.12);
   background: rgba(12, 44, 37, 0.94);
@@ -529,15 +529,18 @@ button {
   letter-spacing: 0.05em;
   cursor: pointer;
   font-weight: 600;
+  font-family: inherit;
+  line-height: 1;
+  transition: border-color 0.15s ease;
 }
 
 .brew-status-dropdown:hover {
-  border-color: rgba(201, 223, 114, 0.25);
+  border-color: rgba(201, 223, 114, 0.3);
 }
 
 .brew-status-dropdown svg {
   flex-shrink: 0;
-  margin-top: 1px;
+  opacity: 0.6;
 }
 
 .brew-status-open,
@@ -565,14 +568,14 @@ button {
   position: absolute;
   top: calc(100% + 6px);
   right: 0;
-  min-width: 140px;
-  padding: 6px;
+  min-width: 120px;
+  padding: 4px;
   border-radius: 10px;
   border: 1px solid rgba(201, 223, 114, 0.1);
   background: rgba(12, 44, 37, 0.98);
   box-shadow: 0 10px 26px rgba(0, 0, 0, 0.32);
   display: grid;
-  gap: 2px;
+  gap: 1px;
   z-index: 20;
 }
 
@@ -582,9 +585,12 @@ button {
   color: var(--text-secondary);
   text-align: left;
   border-radius: 8px;
-  padding: 7px 10px;
-  font-size: 12px;
+  padding: 6px 10px;
+  font-size: 11px;
   cursor: pointer;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-weight: 500;
 }
 
 .brew-issue-menu-item:hover {
