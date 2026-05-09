@@ -729,41 +729,73 @@ export default function App() {
       {selectedIssue ? (
         <div className="brew-modal-overlay" onClick={() => setSelectedIssueId(null)}>
           <div className="brew-modal brew-modal-wide" onClick={(e) => e.stopPropagation()}>
-            <div className="brew-modal-header">
-              <h3>{selectedIssue.title}</h3>
-              <span className="brew-chip">{selectedIssue.status}</span>
+            {/* Header */}
+            <div className="brew-issue-header">
+              <div className="brew-issue-header-title">
+                <span className={`brew-issue-severity brew-issue-severity-${selectedIssue.severity}`}>{selectedIssue.severity}</span>
+                <h3>{selectedIssue.title}</h3>
+              </div>
+              <div className="brew-issue-header-meta">
+                <span className={`brew-status-pill brew-status-${selectedIssue.status}`}>{selectedIssue.status}</span>
+                {selectedIssue.confidence !== null ? (
+                  <span className="brew-issue-confidence">Confidence {selectedIssue.confidence}%</span>
+                ) : null}
+              </div>
             </div>
 
-            <div className="brew-issue-detail-section">
-              <span className="brew-issue-detail-label">Severity</span>
-              <span className="brew-chip">{selectedIssue.severity}</span>
+            {/* Location */}
+            <div className="brew-issue-location">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path>
+                <polyline points="13 2 13 9 20 9"></polyline>
+              </svg>
+              <code>{selectedIssue.file_path}</code>
+              <span className="brew-issue-line">Line {selectedIssue.start_line}{selectedIssue.end_line !== selectedIssue.start_line ? ` - ${selectedIssue.end_line}` : ''}</span>
             </div>
 
-            <div className="brew-issue-detail-section">
-              <span className="brew-issue-detail-label">Location</span>
-              <code className="brew-issue-detail-code">{selectedIssue.file_path}:{selectedIssue.start_line}-{selectedIssue.end_line}</code>
+            {/* Description */}
+            <div className="brew-issue-block">
+              <div className="brew-issue-block-title">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="12" cy="12" r="10"></circle>
+                  <line x1="12" y1="16" x2="12" y2="12"></line>
+                  <line x1="12" y1="8" x2="12.01" y2="8"></line>
+                </svg>
+                Description
+              </div>
+              <div className="brew-issue-block-content">{selectedIssue.description}</div>
             </div>
 
-            <div className="brew-issue-detail-section">
-              <span className="brew-issue-detail-label">Description</span>
-              <p className="brew-issue-detail-text">{selectedIssue.description}</p>
+            {/* Suggestion */}
+            <div className="brew-issue-block">
+              <div className="brew-issue-block-title">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M12 20h9"></path>
+                  <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path>
+                </svg>
+                Suggestion
+              </div>
+              <div className="brew-issue-block-content">{selectedIssue.suggestion}</div>
             </div>
 
-            <div className="brew-issue-detail-section">
-              <span className="brew-issue-detail-label">Suggestion</span>
-              <p className="brew-issue-detail-text">{selectedIssue.suggestion}</p>
-            </div>
-
+            {/* Suggested Code */}
             {selectedIssue.suggestion_code ? (
-              <div className="brew-issue-detail-section">
-                <span className="brew-issue-detail-label">Suggested Code</span>
-                <pre className="brew-issue-detail-pre"><code>{selectedIssue.suggestion_code}</code></pre>
+              <div className="brew-issue-block">
+                <div className="brew-issue-block-title">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="16 18 22 12 16 6"></polyline>
+                    <polyline points="8 6 2 12 8 18"></polyline>
+                  </svg>
+                  Suggested Code
+                </div>
+                <pre className="brew-issue-code-block"><code>{selectedIssue.suggestion_code}</code></pre>
               </div>
             ) : null}
 
-            <div className="brew-issue-detail-meta">
-              <span>Confidence: {selectedIssue.confidence ?? '-'}</span>
-              <span>Updated: {formatDateTime(selectedIssue.updated_at)}</span>
+            {/* Footer */}
+            <div className="brew-issue-footer">
+              <span>PR #{selectedIssue.pr_number} · {selectedIssue.platform}</span>
+              <span>Updated {formatDateTime(selectedIssue.updated_at)}</span>
             </div>
 
             <div className="brew-modal-actions">
