@@ -55,6 +55,21 @@ type WorkflowRunSummary = {
   completed_at: string | null;
 };
 
+type WorkflowRoundSummary = {
+  id: number;
+  workflow_run_id: number;
+  round_number: number;
+  review_run_id: number | null;
+  issue_id: number | null;
+  fix_run_id: number | null;
+  verification_id: number | null;
+  status: string;
+  stop_reason: string | null;
+  summary: string | null;
+  started_at: string;
+  completed_at: string | null;
+};
+
 export default function App() {
   const [isProjectMenuOpen, setIsProjectMenuOpen] = useState(true);
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
@@ -72,6 +87,7 @@ export default function App() {
   const [pendingProjectKeyForPr, setPendingProjectKeyForPr] = useState<string | null>(null);
   const [workflowRuns, setWorkflowRuns] = useState<WorkflowRunSummary[]>([]);
   const [reviewRunningPrIds, setReviewRunningPrIds] = useState<number[]>([]);
+  const [workflowRounds, setWorkflowRounds] = useState<WorkflowRoundSummary[]>([]);
 
   const selectedProject = useMemo(
     () => projects.find((project) => project.project_key === selectedProjectKey) ?? null,
@@ -144,6 +160,7 @@ export default function App() {
       setProjectIssues([]);
       setSelectedPrId(null);
       setWorkflowRuns([]);
+      setWorkflowRounds([]);
       return;
     }
 
@@ -158,6 +175,7 @@ export default function App() {
     }
 
     void loadProjectIssues(selectedProjectKey, selectedPr);
+    void loadSelectedWorkflowRounds(selectedPr);
   }, [selectedProjectKey, selectedPrId]);
 
   useEffect(() => {
@@ -168,6 +186,7 @@ export default function App() {
     const intervalId = window.setInterval(() => {
       void loadProjectIssues(selectedProjectKey, selectedPr);
       void loadWorkflows(selectedProjectKey);
+      void loadSelectedWorkflowRounds(selectedPr);
     }, 1000);
 
     return () => window.clearInterval(intervalId);
@@ -264,6 +283,30 @@ export default function App() {
     }
   }
 
+  async function loadSelectedWorkflowRounds(pr?: PullRequestSummary | null) {
+    if (!pr) {
+      setWorkflowRounds([]);
+      return;
+    }
+
+    const workflow = workflowStatusForPr(pr);
+    if (!workflow) {
+      setWorkflowRounds([]);
+      return;
+    }
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/workflows/${workflow.id}/rounds`);
+      if (!response.ok) {
+        throw new Error(await readApiError(response));
+      }
+      const data = (await response.json()) as WorkflowRoundSummary[];
+      setWorkflowRounds(data);
+    } catch (err) {
+      setError(toErrorMessage(err));
+    }
+  }
+
   function openSelectedPr() {
     if (!selectedPr) {
       return;
@@ -340,6 +383,7 @@ export default function App() {
       setSelectedProjectKey(project.project_key);
       setSelectedPrId(pr.id);
       await loadWorkflows(project.project_key);
+      await loadSelectedWorkflowRounds(pr);
     } catch (err) {
       setError(toErrorMessage(err));
     }
@@ -473,6 +517,7 @@ export default function App() {
                         </div>
                       </div>
                     <p className="brew-card-meta">{pr.pr_url}</p>
+                    {workflow ? <div className="brew-pr-status-line">{workflow.status}: {workflow.summary ?? 'No summary yet'}</div> : null}
                     <div className="brew-chip-row">
                       <span className="brew-chip">Bugs {summary.total}</span>
                       <span className="brew-chip">Open {summary.open}</span>
@@ -487,6 +532,46 @@ export default function App() {
             </div>
           </section>
         </section>
+
+        {selectedPr ? (
+          <section className="brew-panel brew-review-status-panel">
+            <div className="brew-panel-header">
+              <div>
+                <h3>Review Status</h3>
+              </div>
+            </div>
+
+            {workflowStatusForPr(selectedPr) ? (
+              <div className="brew-review-status-body">
+                <div className="brew-chip-row">
+                  <span className="brew-chip">Status {workflowStatusForPr(selectedPr)?.status}</span>
+                  <span className="brew-chip">Started {formatDateTime(workflowStatusForPr(selectedPr)?.started_at ?? '')}</span>
+                  <span className="brew-chip">Completed {workflowStatusForPr(selectedPr)?.completed_at ? formatDateTime(workflowStatusForPr(selectedPr)?.completed_at ?? '') : 'Running'}</span>
+                </div>
+                <p className="brew-review-status-summary">{workflowStatusForPr(selectedPr)?.summary ?? 'No workflow summary yet.'}</p>
+                <div className="brew-review-timeline">
+                  {workflowRounds.map((round) => (
+                    <article key={round.id} className="brew-review-step">
+                      <div className="brew-card-header">
+                        <strong>Round {round.round_number}</strong>
+                        <span className="brew-chip">{round.status}</span>
+                      </div>
+                      <p className="brew-review-status-summary">{round.summary ?? 'No round summary yet.'}</p>
+                      <div className="brew-chip-row">
+                        <span className="brew-chip">Started {formatDateTime(round.started_at)}</span>
+                        <span className="brew-chip">Completed {round.completed_at ? formatDateTime(round.completed_at) : 'Running'}</span>
+                        {round.review_run_id ? <span className="brew-chip">Review Run {round.review_run_id}</span> : null}
+                      </div>
+                    </article>
+                  ))}
+                  {workflowRounds.length === 0 ? <div className="brew-empty-block">Task created, waiting for execution details.</div> : null}
+                </div>
+              </div>
+            ) : (
+              <div className="brew-empty-block">No review task has started for this PR yet.</div>
+            )}
+          </section>
+        ) : null}
 
         {selectedPr ? (
           <section className="brew-panel brew-bug-pool-panel">

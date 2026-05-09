@@ -567,17 +567,69 @@ impl OrchestratorService {
         project_name: String,
         pr_url: String,
     ) -> Result<IngestReviewResult> {
+        sqlx::query(
+            r#"
+            INSERT INTO workflow_rounds (workflow_run_id, round_number, status, summary)
+            VALUES ($1, 1, 'running', $2)
+            ON CONFLICT (workflow_run_id, round_number)
+            DO UPDATE SET status = EXCLUDED.status, summary = EXCLUDED.summary, completed_at = NULL
+            "#,
+        )
+        .bind(workflow_run_id)
+        .bind("ReviewAgent is analyzing the PR diff.")
+        .execute(&self.pool)
+        .await?;
+
         self.update_workflow_progress(
             workflow_run_id,
             Some("ReviewAgent is analyzing the PR diff."),
-            None,
+            Some(1),
             "ReviewAgent is analyzing the PR diff.",
         )
         .await?;
 
-        let review = self
-            .run_review(repo_dir, project_key, project_name, pr_url)
-            .await?;
+        let review = match self.run_review(repo_dir, project_key, project_name, pr_url).await {
+            Ok(review) => review,
+            Err(error) => {
+                sqlx::query(
+                    r#"
+                    UPDATE workflow_rounds
+                    SET status = 'failed',
+                        stop_reason = 'execution_failed',
+                        summary = $2,
+                        completed_at = NOW()
+                    WHERE workflow_run_id = $1 AND round_number = 1
+                    "#,
+                )
+                .bind(workflow_run_id)
+                .bind(error.to_string())
+                .execute(&self.pool)
+                .await?;
+
+                return Err(error);
+            }
+        };
+
+        sqlx::query(
+            r#"
+            UPDATE workflow_rounds
+            SET review_run_id = $3,
+                status = 'completed',
+                stop_reason = 'review_completed',
+                summary = $4,
+                completed_at = NOW()
+            WHERE workflow_run_id = $1 AND round_number = $2
+            "#,
+        )
+        .bind(workflow_run_id)
+        .bind(1)
+        .bind(review.review_run_id)
+        .bind(format!(
+            "ReviewAgent completed review_run_id={} and refreshed the issue pool.",
+            review.review_run_id
+        ))
+        .execute(&self.pool)
+        .await?;
 
         self.finish_workflow_run(
             workflow_run_id,
