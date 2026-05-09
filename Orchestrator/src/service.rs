@@ -343,7 +343,7 @@ impl OrchestratorService {
         pr_number: Option<i64>,
         status: Option<String>,
     ) -> Result<Vec<IssueSummary>> {
-        let rows = sqlx::query_as::<_, (String, String, String, i64, i64, i64, i64, String, String, i64, i64, String, String, Option<i32>, chrono::DateTime<Utc>, chrono::DateTime<Utc>)>(
+        let rows = sqlx::query_as::<_, (String, String, String, i64, i64, i64, i64, String, String, i64, i64, String, String, String, Option<String>, Option<i32>, chrono::DateTime<Utc>, chrono::DateTime<Utc>)>(
             r#"
             SELECT
                 p.project_key,
@@ -358,6 +358,9 @@ impl OrchestratorService {
                 i.start_line,
                 i.end_line,
                 i.title,
+                i.description,
+                i.suggestion,
+                i.suggestion_code,
                 i.status,
                 i.confidence,
                 i.created_at,
@@ -381,7 +384,7 @@ impl OrchestratorService {
 
         Ok(rows
             .into_iter()
-            .map(|(project_key, project_name, platform, pr_number, id, pull_request_id, review_run_id, severity, file_path, start_line, end_line, title, status, confidence, created_at, updated_at)| IssueSummary {
+            .map(|(project_key, project_name, platform, pr_number, id, pull_request_id, review_run_id, severity, file_path, start_line, end_line, title, description, suggestion, suggestion_code, status, confidence, created_at, updated_at)| IssueSummary {
                 id,
                 project_key,
                 project_name,
@@ -394,6 +397,9 @@ impl OrchestratorService {
                 start_line,
                 end_line,
                 title,
+                description,
+                suggestion,
+                suggestion_code,
                 status,
                 confidence,
                 created_at,
@@ -1248,10 +1254,11 @@ impl OrchestratorService {
                     title,
                     description,
                     suggestion,
+                    suggestion_code,
                     confidence,
                     status,
                     source_bot
-                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'open', 'reviewagent')
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'open', 'reviewagent')
                 ON CONFLICT (pull_request_id, fingerprint)
                 DO UPDATE SET
                     review_run_id = EXCLUDED.review_run_id,
@@ -1262,6 +1269,7 @@ impl OrchestratorService {
                     title = EXCLUDED.title,
                     description = EXCLUDED.description,
                     suggestion = EXCLUDED.suggestion,
+                    suggestion_code = EXCLUDED.suggestion_code,
                     confidence = EXCLUDED.confidence,
                     updated_at = NOW()
                 "#,
@@ -1276,6 +1284,7 @@ impl OrchestratorService {
             .bind(&issue.title)
             .bind(&issue.description)
             .bind(&issue.suggestion)
+            .bind(&issue.suggestion_code)
             .bind(issue.confidence.map(|v| v as i32))
             .execute(&mut *tx)
             .await?;
@@ -1303,7 +1312,7 @@ impl OrchestratorService {
     ) -> Result<RunFixResult> {
         let mut tx = self.pool.begin().await?;
 
-        let row = sqlx::query_as::<_, (i64, i64, String, String, i64, i64, String, String, String, Option<i32>)>(
+        let row = sqlx::query_as::<_, (i64, i64, String, String, i64, i64, String, String, String, Option<String>, Option<i32>)>(
             r#"
             UPDATE issues i
             SET status = 'claimed',
@@ -1330,7 +1339,7 @@ impl OrchestratorService {
                 LIMIT 1
                 FOR UPDATE SKIP LOCKED
             )
-            RETURNING i.id, i.pull_request_id, i.severity, i.file_path, i.start_line, i.end_line, i.title, i.description, i.suggestion, i.confidence
+            RETURNING i.id, i.pull_request_id, i.severity, i.file_path, i.start_line, i.end_line, i.title, i.description, i.suggestion, i.suggestion_code, i.confidence
             "#,
         )
         .bind(&claimed_by)
@@ -1340,7 +1349,7 @@ impl OrchestratorService {
         .fetch_optional(&mut *tx)
         .await?;
 
-        let (issue_id, pull_request_id, severity, file_path, start_line, end_line, title, description, suggestion, confidence) =
+        let (issue_id, pull_request_id, severity, file_path, start_line, end_line, title, description, suggestion, suggestion_code, confidence) =
             row.ok_or_else(|| OrchestratorError::Config("No open issue found for the specified PR/MR".to_string()))?;
 
         tx.commit().await?;
@@ -1360,7 +1369,7 @@ impl OrchestratorService {
                 title,
                 description,
                 suggestion,
-                suggestion_code: None,
+                suggestion_code,
                 confidence: confidence.map(|v| v as u8),
             },
         };

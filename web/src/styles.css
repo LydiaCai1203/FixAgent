@@ -505,6 +505,7 @@ button {
   padding: 18px;
   border-radius: 18px;
   background: linear-gradient(180deg, rgba(17, 60, 51, 0.96), rgba(13, 45, 38, 0.98));
+  cursor: pointer;
 }
 
 .brew-bug-pool-panel {
@@ -943,4 +944,69 @@ button {
 .brew-btn-secondary {
   background: rgba(201, 223, 114, 0.1);
   color: var(--text-secondary);
+}
+
+.brew-modal-wide {
+  width: 640px;
+  max-width: 90vw;
+  max-height: 80vh;
+  overflow-y: auto;
+}
+
+.brew-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.brew-issue-detail-section {
+  display: grid;
+  gap: 6px;
+}
+
+.brew-issue-detail-label {
+  color: var(--text-muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.brew-issue-detail-text {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.6;
+  word-break: break-word;
+}
+
+.brew-issue-detail-code {
+  color: var(--accent-secondary);
+  font-size: 12px;
+  background: rgba(18, 63, 53, 0.6);
+  padding: 4px 8px;
+  border-radius: 6px;
+}
+
+.brew-issue-detail-pre {
+  margin: 0;
+  padding: 12px;
+  border-radius: 10px;
+  background: rgba(8, 28, 24, 0.9);
+  border: 1px solid rgba(201, 223, 114, 0.08);
+  overflow-x: auto;
+}
+
+.brew-issue-detail-pre code {
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre;
+}
+
+.brew-issue-detail-meta {
+  display: flex;
+  gap: 16px;
+  color: var(--text-muted);
+  font-size: 11px;
 }

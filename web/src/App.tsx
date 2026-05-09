@@ -34,6 +34,9 @@ type IssueSummary = {
   start_line: number;
   end_line: number;
   title: string;
+  description: string;
+  suggestion: string;
+  suggestion_code: string | null;
   status: string;
   confidence: number | null;
   created_at: string;
@@ -87,6 +90,7 @@ export default function App() {
   const [pendingProjectKeyForPr, setPendingProjectKeyForPr] = useState<string | null>(null);
   const [openProjectMenuKey, setOpenProjectMenuKey] = useState<string | null>(null);
   const [hoveredReviewPrId, setHoveredReviewPrId] = useState<number | null>(null);
+  const [selectedIssueId, setSelectedIssueId] = useState<number | null>(null);
 
   const [workflowRuns, setWorkflowRuns] = useState<WorkflowRunSummary[]>([]);
   const [reviewRunningPrIds, setReviewRunningPrIds] = useState<number[]>([]);
@@ -101,6 +105,11 @@ export default function App() {
   const selectedPr = useMemo(
     () => prs.find((pr) => pr.id === selectedPrId) ?? null,
     [prs, selectedPrId],
+  );
+
+  const selectedIssue = useMemo(
+    () => projectIssues.find((issue) => issue.id === selectedIssueId) ?? null,
+    [projectIssues, selectedIssueId],
   );
 
   const prIdentityById = useMemo(() => {
@@ -640,7 +649,19 @@ export default function App() {
 
               <div className="brew-card-grid brew-bug-card-grid">
                 {projectIssues.map((issue) => (
-                  <article key={issue.id} className="brew-card brew-bug-card">
+                  <article
+                    key={issue.id}
+                    className="brew-card brew-bug-card"
+                    onClick={() => setSelectedIssueId(issue.id)}
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault();
+                        setSelectedIssueId(issue.id);
+                      }
+                    }}
+                  >
                     <div className="brew-card-header">
                       <div>
                         <div className="brew-card-kicker">{issue.severity}</div>
@@ -700,6 +721,53 @@ export default function App() {
             <div className="brew-modal-actions">
               <button className="brew-btn-secondary" onClick={() => setShowCreatePr(false)}>取消</button>
               <button className="brew-btn-primary" onClick={() => void handleCreatePr()}>确定</button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {selectedIssue ? (
+        <div className="brew-modal-overlay" onClick={() => setSelectedIssueId(null)}>
+          <div className="brew-modal brew-modal-wide" onClick={(e) => e.stopPropagation()}>
+            <div className="brew-modal-header">
+              <h3>{selectedIssue.title}</h3>
+              <span className="brew-chip">{selectedIssue.status}</span>
+            </div>
+
+            <div className="brew-issue-detail-section">
+              <span className="brew-issue-detail-label">Severity</span>
+              <span className="brew-chip">{selectedIssue.severity}</span>
+            </div>
+
+            <div className="brew-issue-detail-section">
+              <span className="brew-issue-detail-label">Location</span>
+              <code className="brew-issue-detail-code">{selectedIssue.file_path}:{selectedIssue.start_line}-{selectedIssue.end_line}</code>
+            </div>
+
+            <div className="brew-issue-detail-section">
+              <span className="brew-issue-detail-label">Description</span>
+              <p className="brew-issue-detail-text">{selectedIssue.description}</p>
+            </div>
+
+            <div className="brew-issue-detail-section">
+              <span className="brew-issue-detail-label">Suggestion</span>
+              <p className="brew-issue-detail-text">{selectedIssue.suggestion}</p>
+            </div>
+
+            {selectedIssue.suggestion_code ? (
+              <div className="brew-issue-detail-section">
+                <span className="brew-issue-detail-label">Suggested Code</span>
+                <pre className="brew-issue-detail-pre"><code>{selectedIssue.suggestion_code}</code></pre>
+              </div>
+            ) : null}
+
+            <div className="brew-issue-detail-meta">
+              <span>Confidence: {selectedIssue.confidence ?? '-'}</span>
+              <span>Updated: {formatDateTime(selectedIssue.updated_at)}</span>
+            </div>
+
+            <div className="brew-modal-actions">
+              <button className="brew-btn-secondary" onClick={() => setSelectedIssueId(null)}>关闭</button>
             </div>
           </div>
         </div>
