@@ -543,7 +543,7 @@ export default function App() {
                             title={reviewTooltipForPr(pr)}
                             disabled={isReviewBusy}
                           >
-                            {isReviewBusy ? '...' : 'R'}
+                            {isReviewBusy ? <span className="brew-pr-run-spinner" aria-hidden="true" /> : 'R'}
                           </button>
                         </div>
                       </div>
