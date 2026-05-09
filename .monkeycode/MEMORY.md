@@ -103,3 +103,88 @@ Agent 在任务执行过程中发现的条目应遵循以下格式：
 - Instructions:
   - README.md 需要写得更精致、美观，呈现效果应更像正式项目首页。
   - 在保证信息完整的前提下，优先提升结构层次、语言质感和可读性。
+
+[Bug 列表交互与视觉偏好]
+- Date: 2026-05-08
+- Context: 用户在改进 Bugs 页面时进一步明确要求
+- Instructions:
+  - Bugs 页面不要做成表格视图。
+  - 优先保留更有产品感的卡片式信息展示。
+  - 问题列表应支持点击后联动跳转到对应 workflow 或 PR 上下文。
+
+[前端信息架构要求]
+- Date: 2026-05-08
+- Context: 用户重新明确前端页面主结构
+- Instructions:
+  - 前端信息结构应围绕 `项目 -> PR -> bugs pool / tasks` 展开。
+  - 不要继续以 workflow 作为页面的主导航中心。
+  - 页面应优先体现项目层、PR 层，以及该 PR 下的问题池和任务视图。
+
+[前端视觉质感要求]
+- Date: 2026-05-08
+- Context: 用户继续要求提升页面完成度和产品质感
+- Instructions:
+  - 页面需要更整齐，避免卡片、标题、状态信息出现松散和不对齐的问题。
+  - 整体观感要更高级，避免像临时拼装的控制台。
+  - 优先通过节奏、留白、层级、一致性来提升质感，而不是堆砌装饰。
+
+[前端层次与对比要求]
+- Date: 2026-05-08
+- Context: 用户查看深色改版后继续指出视觉问题
+- Instructions:
+  - 边框之间不要挤在一起，卡片与容器之间要有更清晰的呼吸感。
+  - 页面必须有明确的层次，不能所有块都贴在一个平面上。
+  - 需要建立明显的深浅浓淡区分，让背景层、面板层、卡片层、文字层彼此分明。
+
+[前端留白与边界要求]
+- Date: 2026-05-08
+- Context: 用户继续指出卡片和容器边界过于拥挤
+- Instructions:
+  - 卡片与卡片之间必须有明显空隙，不能边框紧贴边框。
+  - 卡片与外层容器之间也要保留清晰留白，避免视觉上挤在一起。
+  - 优先通过减弱外层边框、增强内边距和背景分层来解决拥挤问题。
+
+[Project 与 PR 入口要求]
+- Date: 2026-05-08
+- Context: 用户继续完善 Project 页面和 PR 卡片体验
+- Instructions:
+  - `project name` 优先从已有 PR 信息中推导，而不是完全依赖后端返回字段。
+  - PR 卡片需要继续设计优化，增强辨识度和产品感。
+
+[左侧导航与品牌位要求]
+- Date: 2026-05-08
+- Context: 用户继续细化左侧菜单视觉和品牌呈现
+- Instructions:
+  - 左侧菜单应采用一级 `Project` + 二级 project 列表的结构。
+  - 左侧视觉要简单、大方，不要做得过满或过重。
+  - 最上方品牌位需要使用工作区里的 `monkeycode1.png` 图标。
+  - 左侧二级 project 列表应更像目录树，而不是一组按钮。
+  - 展开后不需要额外显示 `Project List` 这类重复说明文字。
+  - 左侧展开区不需要 `Refresh` 按钮。
+  - 顶部不需要 `Project → PRPool`、`Select a project`、`English Mild Ale Palette` 这类无用标题文案。
+  - 右上角不需要 `Refresh` 和 `Open PR` 按钮。
+
+[ReviewAgent 并发与 RPM 约束]
+- Date: 2026-05-09
+- Context: Agent 在排查 review bot 失败原因时发现
+- Category: 依赖关系
+- Instructions:
+  - `ReviewOrchestrator` 会对代码分片进行并发审查，默认 `max_concurrent_chunks=3` 时，叠加 explorer 子 agent 与 synthesis 调用，容易超出模型侧 20 RPM 限制。
+  - 当前项目已将默认并发数从 `3` 降为 `1`，优先串行执行 review 分片，避免因速率限制导致所有分片统一失败。
+  - 遇到 `所有分片审查均失败` 时，需要优先检查模型速率限制与分片并发配置，而不只是排查前端或 Orchestrator 展示逻辑。
+
+[DeepSeek 参数约束]
+- Date: 2026-05-09
+- Context: 用户提供 DeepSeek 官方推荐参数并要求按模型特性适配
+- Category: 依赖关系
+- Instructions:
+  - `deepseek` 模型应使用官方推荐参数：`temperature=1.0`、`top_p=1.0`。
+  - 不要机械沿用 GPT/Kimi 的低 temperature 参数到 `deepseek`。
+  - `deepseek` 在 tool call 场景下仍需关闭 `thinking`，避免 `reasoning_content` / `tool choice` 兼容问题。
+
+[提交偏好]
+- Date: 2026-05-09
+- Context: 用户明确要求后续提交行为
+- Instructions:
+  - 当用户说“提交”时，应默认把本次工作区里与当前任务相关的改动一并提交，而不是只提交部分文件。
+  - 仍然应排除明显的本地产物或构建缓存，例如 `node_modules/.vite` 一类自动生成文件。

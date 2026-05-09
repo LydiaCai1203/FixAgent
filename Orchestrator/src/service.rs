@@ -24,7 +24,9 @@ impl OrchestratorService {
         let database_url = std::env::var("DATABASE_URL")
             .map_err(|_| OrchestratorError::Config("DATABASE_URL is required".to_string()))?;
         let pool = db::connect(&database_url).await?;
-        Ok(Self { pool })
+        let service = Self { pool };
+        service.recover_interrupted_runs().await?;
+        Ok(service)
     }
 
     pub async fn run_review(
@@ -100,6 +102,156 @@ impl OrchestratorService {
             .collect())
     }
 
+    pub async fn create_project(&self, project_name: String) -> Result<ProjectSummary> {
+        let project_name = project_name.trim().to_string();
+        if project_name.is_empty() {
+            return Err(OrchestratorError::Config("project_name is required".to_string()));
+        }
+
+        let project_key = build_project_key(&project_name);
+        let row = sqlx::query_as::<_, (i64, String, String, chrono::DateTime<Utc>, chrono::DateTime<Utc>)>(
+            r#"
+            INSERT INTO projects (project_key, project_name)
+            VALUES ($1, $2)
+            ON CONFLICT (project_key)
+            DO UPDATE SET project_name = EXCLUDED.project_name, updated_at = NOW()
+            RETURNING id, project_key, project_name, created_at, updated_at
+            "#,
+        )
+        .bind(&project_key)
+        .bind(&project_name)
+        .fetch_one(&self.pool)
+        .await?;
+
+        Ok(ProjectSummary {
+            id: row.0,
+            project_key: row.1,
+            project_name: row.2,
+            created_at: row.3,
+            updated_at: row.4,
+        })
+    }
+
+    pub async fn delete_project(&self, project_key: String) -> Result<()> {
+        let project_key = project_key.trim().to_string();
+        if project_key.is_empty() {
+            return Err(OrchestratorError::Config("project_key is required".to_string()));
+        }
+
+        let mut tx = self.pool.begin().await?;
+
+        let project_id = sqlx::query_scalar::<_, i64>(
+            r#"
+            SELECT id
+            FROM projects
+            WHERE project_key = $1
+            "#,
+        )
+        .bind(&project_key)
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or_else(|| OrchestratorError::Config(format!("Project not found: {}", project_key)))?;
+
+        sqlx::query(
+            r#"
+            DELETE FROM verifications
+            WHERE issue_id IN (
+                SELECT i.id
+                FROM issues i
+                JOIN pull_requests pr ON pr.id = i.pull_request_id
+                WHERE pr.project_id = $1
+            )
+            "#,
+        )
+        .bind(project_id)
+        .execute(&mut *tx)
+        .await?;
+
+        sqlx::query(
+            r#"
+            DELETE FROM fix_runs
+            WHERE issue_id IN (
+                SELECT i.id
+                FROM issues i
+                JOIN pull_requests pr ON pr.id = i.pull_request_id
+                WHERE pr.project_id = $1
+            )
+            "#,
+        )
+        .bind(project_id)
+        .execute(&mut *tx)
+        .await?;
+
+        sqlx::query(
+            r#"
+            DELETE FROM issues
+            WHERE pull_request_id IN (
+                SELECT id FROM pull_requests WHERE project_id = $1
+            )
+            "#,
+        )
+        .bind(project_id)
+        .execute(&mut *tx)
+        .await?;
+
+        sqlx::query(
+            r#"
+            DELETE FROM review_runs
+            WHERE pull_request_id IN (
+                SELECT id FROM pull_requests WHERE project_id = $1
+            )
+            "#,
+        )
+        .bind(project_id)
+        .execute(&mut *tx)
+        .await?;
+
+        sqlx::query(
+            r#"
+            DELETE FROM pull_requests
+            WHERE project_id = $1
+            "#,
+        )
+        .bind(project_id)
+        .execute(&mut *tx)
+        .await?;
+
+        sqlx::query(
+            r#"
+            DELETE FROM workflow_rounds
+            WHERE workflow_run_id IN (
+                SELECT id FROM workflow_runs WHERE project_key = $1
+            )
+            "#,
+        )
+        .bind(&project_key)
+        .execute(&mut *tx)
+        .await?;
+
+        sqlx::query(
+            r#"
+            DELETE FROM workflow_runs
+            WHERE project_key = $1
+            "#,
+        )
+        .bind(&project_key)
+        .execute(&mut *tx)
+        .await?;
+
+        sqlx::query(
+            r#"
+            DELETE FROM projects
+            WHERE id = $1
+            "#,
+        )
+        .bind(project_id)
+        .execute(&mut *tx)
+        .await?;
+
+        tx.commit().await?;
+        Ok(())
+    }
+
     pub async fn list_prs(&self, project_key: String) -> Result<Vec<PullRequestSummary>> {
         let rows = sqlx::query_as::<_, (i64, i64, String, i64, String, Option<String>, chrono::DateTime<Utc>, chrono::DateTime<Utc>)>(
             r#"
@@ -129,57 +281,112 @@ impl OrchestratorService {
             .collect())
     }
 
+    pub async fn create_pr(&self, project_key: String, pr_url: String) -> Result<PullRequestSummary> {
+        let project_key = project_key.trim().to_string();
+        let pr_url = pr_url.trim().to_string();
+
+        if project_key.is_empty() {
+            return Err(OrchestratorError::Config("project_key is required".to_string()));
+        }
+        if pr_url.is_empty() {
+            return Err(OrchestratorError::Config("pr_url is required".to_string()));
+        }
+
+        let (platform, pr_number) = detect_platform_name_and_pr_number(&pr_url).ok_or_else(|| {
+            OrchestratorError::Config("Unable to parse platform or PR number from URL".to_string())
+        })?;
+
+        let project_id = sqlx::query_scalar::<_, i64>(
+            r#"
+            SELECT id
+            FROM projects
+            WHERE project_key = $1
+            "#,
+        )
+        .bind(&project_key)
+        .fetch_optional(&self.pool)
+        .await?
+        .ok_or_else(|| OrchestratorError::Config(format!("Project not found: {}", project_key)))?;
+
+        let row = sqlx::query_as::<_, (i64, i64, String, i64, String, Option<String>, chrono::DateTime<Utc>, chrono::DateTime<Utc>)>(
+            r#"
+            INSERT INTO pull_requests (project_id, platform, pr_number, pr_url, latest_commit_sha)
+            VALUES ($1, $2, $3, $4, NULL)
+            ON CONFLICT (project_id, platform, pr_number)
+            DO UPDATE SET pr_url = EXCLUDED.pr_url, updated_at = NOW()
+            RETURNING id, project_id, platform, pr_number, pr_url, latest_commit_sha, created_at, updated_at
+            "#,
+        )
+        .bind(project_id)
+        .bind(&platform)
+        .bind(pr_number)
+        .bind(&pr_url)
+        .fetch_one(&self.pool)
+        .await?;
+
+        Ok(PullRequestSummary {
+            id: row.0,
+            project_id: row.1,
+            platform: row.2,
+            pr_number: row.3,
+            pr_url: row.4,
+            latest_commit_sha: row.5,
+            created_at: row.6,
+            updated_at: row.7,
+        })
+    }
+
     pub async fn list_issues(
         &self,
-        project_key: String,
-        platform: String,
-        pr_number: i64,
+        project_key: Option<String>,
+        platform: Option<String>,
+        pr_number: Option<i64>,
         status: Option<String>,
     ) -> Result<Vec<IssueSummary>> {
-        let rows = if let Some(status) = status {
-            sqlx::query_as::<_, (i64, i64, i64, String, String, i64, i64, String, String, Option<i32>, chrono::DateTime<Utc>, chrono::DateTime<Utc>)>(
-                r#"
-                SELECT i.id, i.pull_request_id, i.review_run_id, i.severity, i.file_path, i.start_line, i.end_line, i.title, i.status, i.confidence, i.created_at, i.updated_at
-                FROM issues i
-                JOIN pull_requests pr ON pr.id = i.pull_request_id
-                JOIN projects p ON p.id = pr.project_id
-                WHERE p.project_key = $1
-                  AND pr.platform = $2
-                  AND pr.pr_number = $3
-                  AND i.status = $4
-                ORDER BY i.updated_at DESC, i.id DESC
-                "#,
-            )
-            .bind(project_key)
-            .bind(platform)
-            .bind(pr_number)
-            .bind(status)
-            .fetch_all(&self.pool)
-            .await?
-        } else {
-            sqlx::query_as::<_, (i64, i64, i64, String, String, i64, i64, String, String, Option<i32>, chrono::DateTime<Utc>, chrono::DateTime<Utc>)>(
-                r#"
-                SELECT i.id, i.pull_request_id, i.review_run_id, i.severity, i.file_path, i.start_line, i.end_line, i.title, i.status, i.confidence, i.created_at, i.updated_at
-                FROM issues i
-                JOIN pull_requests pr ON pr.id = i.pull_request_id
-                JOIN projects p ON p.id = pr.project_id
-                WHERE p.project_key = $1
-                  AND pr.platform = $2
-                  AND pr.pr_number = $3
-                ORDER BY i.updated_at DESC, i.id DESC
-                "#,
-            )
-            .bind(project_key)
-            .bind(platform)
-            .bind(pr_number)
-            .fetch_all(&self.pool)
-            .await?
-        };
+        let rows = sqlx::query_as::<_, (String, String, String, i64, i64, i64, i64, String, String, i64, i64, String, String, Option<i32>, chrono::DateTime<Utc>, chrono::DateTime<Utc>)>(
+            r#"
+            SELECT
+                p.project_key,
+                p.project_name,
+                pr.platform,
+                pr.pr_number,
+                i.id,
+                i.pull_request_id,
+                i.review_run_id,
+                i.severity,
+                i.file_path,
+                i.start_line,
+                i.end_line,
+                i.title,
+                i.status,
+                i.confidence,
+                i.created_at,
+                i.updated_at
+            FROM issues i
+            JOIN pull_requests pr ON pr.id = i.pull_request_id
+            JOIN projects p ON p.id = pr.project_id
+            WHERE ($1::text IS NULL OR p.project_key = $1)
+              AND ($2::text IS NULL OR pr.platform = $2)
+              AND ($3::bigint IS NULL OR pr.pr_number = $3)
+              AND ($4::text IS NULL OR i.status = $4)
+            ORDER BY i.updated_at DESC, i.id DESC
+            "#,
+        )
+        .bind(project_key)
+        .bind(platform)
+        .bind(pr_number)
+        .bind(status)
+        .fetch_all(&self.pool)
+        .await?;
 
         Ok(rows
             .into_iter()
-            .map(|(id, pull_request_id, review_run_id, severity, file_path, start_line, end_line, title, status, confidence, created_at, updated_at)| IssueSummary {
+            .map(|(project_key, project_name, platform, pr_number, id, pull_request_id, review_run_id, severity, file_path, start_line, end_line, title, status, confidence, created_at, updated_at)| IssueSummary {
                 id,
+                project_key,
+                project_name,
+                platform,
+                pr_number,
                 pull_request_id,
                 review_run_id,
                 severity,
@@ -435,6 +642,129 @@ impl OrchestratorService {
             dry_run,
         )
         .await
+    }
+
+    pub async fn start_review_run(
+        &self,
+        project_key: String,
+        project_name: String,
+        pr_url: String,
+    ) -> Result<i64> {
+        let (platform, pr_number) = detect_platform_name_and_pr_number(&pr_url).ok_or_else(|| {
+            OrchestratorError::Config("Unable to parse platform or PR number from URL".to_string())
+        })?;
+
+        let workflow_run_id: i64 = sqlx::query_scalar(
+            r#"
+            INSERT INTO workflow_runs (
+                project_key,
+                project_name,
+                platform,
+                pr_number,
+                pr_url,
+                status,
+                max_rounds,
+                summary
+            ) VALUES ($1, $2, $3, $4, $5, 'running', 1, $6)
+            RETURNING id
+            "#,
+        )
+        .bind(&project_key)
+        .bind(&project_name)
+        .bind(&platform)
+        .bind(pr_number)
+        .bind(&pr_url)
+        .bind("Review task accepted and waiting to start.")
+        .fetch_one(&self.pool)
+        .await?;
+
+        Ok(workflow_run_id)
+    }
+
+    pub async fn execute_review_run(
+        &self,
+        workflow_run_id: i64,
+        repo_dir: PathBuf,
+        project_key: String,
+        project_name: String,
+        pr_url: String,
+    ) -> Result<IngestReviewResult> {
+        sqlx::query(
+            r#"
+            INSERT INTO workflow_rounds (workflow_run_id, round_number, status, summary)
+            VALUES ($1, 1, 'running', $2)
+            ON CONFLICT (workflow_run_id, round_number)
+            DO UPDATE SET status = EXCLUDED.status, summary = EXCLUDED.summary, completed_at = NULL
+            "#,
+        )
+        .bind(workflow_run_id)
+        .bind("ReviewAgent is analyzing the PR diff.")
+        .execute(&self.pool)
+        .await?;
+
+        self.update_workflow_progress(
+            workflow_run_id,
+            Some("ReviewAgent is analyzing the PR diff."),
+            Some(1),
+            "ReviewAgent is analyzing the PR diff.",
+        )
+        .await?;
+
+        let review = match self.run_review(repo_dir, project_key, project_name, pr_url).await {
+            Ok(review) => review,
+            Err(error) => {
+                sqlx::query(
+                    r#"
+                    UPDATE workflow_rounds
+                    SET status = 'failed',
+                        stop_reason = 'execution_failed',
+                        summary = $2,
+                        completed_at = NOW()
+                    WHERE workflow_run_id = $1 AND round_number = 1
+                    "#,
+                )
+                .bind(workflow_run_id)
+                .bind(error.to_string())
+                .execute(&self.pool)
+                .await?;
+
+                return Err(error);
+            }
+        };
+
+        sqlx::query(
+            r#"
+            UPDATE workflow_rounds
+            SET review_run_id = $3,
+                status = 'completed',
+                stop_reason = 'review_completed',
+                summary = $4,
+                completed_at = NOW()
+            WHERE workflow_run_id = $1 AND round_number = $2
+            "#,
+        )
+        .bind(workflow_run_id)
+        .bind(1)
+        .bind(review.review_run_id)
+        .bind(format!(
+            "ReviewAgent completed review_run_id={} and refreshed the issue pool.",
+            review.review_run_id
+        ))
+        .execute(&self.pool)
+        .await?;
+
+        self.finish_workflow_run(
+            workflow_run_id,
+            "completed",
+            "review_completed",
+            Some(&format!(
+                "ReviewAgent completed review_run_id={} and refreshed the issue pool.",
+                review.review_run_id
+            )),
+        )
+        .await?;
+
+        Ok(review)
     }
 
     pub async fn start_workflow(
@@ -1195,6 +1525,36 @@ impl OrchestratorService {
         Ok(count)
     }
 
+    async fn recover_interrupted_runs(&self) -> Result<()> {
+        sqlx::query(
+            r#"
+            UPDATE workflow_runs
+            SET status = 'failed',
+                stop_reason = 'service_restarted',
+                summary = 'Task interrupted because the orchestrator service restarted before completion.',
+                completed_at = NOW()
+            WHERE status = 'running'
+            "#,
+        )
+        .execute(&self.pool)
+        .await?;
+
+        sqlx::query(
+            r#"
+            UPDATE workflow_rounds
+            SET status = 'failed',
+                stop_reason = 'service_restarted',
+                summary = 'Round interrupted because the orchestrator service restarted before completion.',
+                completed_at = NOW()
+            WHERE status = 'running'
+            "#,
+        )
+        .execute(&self.pool)
+        .await?;
+
+        Ok(())
+    }
+
     async fn finish_workflow_run(
         &self,
         workflow_run_id: i64,
@@ -1376,6 +1736,31 @@ fn normalize_title(title: &str) -> String {
         .chars()
         .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
         .collect::<String>()
+}
+
+fn build_project_key(project_name: &str) -> String {
+    let mut key = String::with_capacity(project_name.len());
+    let mut last_was_dash = false;
+
+    for ch in project_name.trim().chars() {
+        if ch.is_ascii_alphanumeric() {
+            key.push(ch.to_ascii_lowercase());
+            last_was_dash = false;
+        } else if !last_was_dash && !key.is_empty() {
+            key.push('-');
+            last_was_dash = true;
+        }
+    }
+
+    while key.ends_with('-') {
+        key.pop();
+    }
+
+    if key.is_empty() {
+        "project".to_string()
+    } else {
+        key
+    }
 }
 
 fn map_fix_status(status: &FixExecutionStatus) -> &'static str {

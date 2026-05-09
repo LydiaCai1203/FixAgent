@@ -16,9 +16,9 @@ pub struct ListPrsQuery {
 
 #[derive(Debug, Deserialize)]
 pub struct ListIssuesQuery {
-    pub project_key: String,
-    pub platform: String,
-    pub pr_number: i64,
+    pub project_key: Option<String>,
+    pub platform: Option<String>,
+    pub pr_number: Option<i64>,
     pub status: Option<String>,
 }
 
@@ -45,6 +45,30 @@ pub struct RunUntilStableRequest {
     pub dry_run: Option<bool>,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct CreateProjectRequest {
+    pub project_name: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct DeleteProjectRequest {
+    pub project_key: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CreatePrRequest {
+    pub project_key: String,
+    pub pr_url: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct StartReviewRequest {
+    pub repo_dir: Option<String>,
+    pub project_key: String,
+    pub project_name: String,
+    pub pr_url: String,
+}
+
 #[derive(Debug, Serialize)]
 pub struct ApiErrorBody {
     pub error: String,
@@ -53,8 +77,9 @@ pub struct ApiErrorBody {
 pub async fn serve_http(service: OrchestratorService, host: String, port: u16) -> anyhow::Result<()> {
     let app = Router::new()
         .route("/health", get(health))
-        .route("/projects", get(list_projects))
-        .route("/prs", get(list_prs))
+        .route("/projects", get(list_projects).post(create_project).delete(delete_project))
+        .route("/prs", get(list_prs).post(create_pr))
+        .route("/reviews", post(start_review))
         .route("/issues", get(list_issues))
         .route("/pr-stats", get(pr_stats))
         .route("/workflows", get(list_workflows).post(start_workflow))
@@ -80,12 +105,64 @@ async fn list_projects(
     Ok(Json(serde_json::json!(result)))
 }
 
+async fn create_project(
+    State(service): State<OrchestratorService>,
+    Json(request): Json<CreateProjectRequest>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let result = service.create_project(request.project_name).await?;
+    Ok(Json(serde_json::json!(result)))
+}
+
+async fn delete_project(
+    State(service): State<OrchestratorService>,
+    Json(request): Json<DeleteProjectRequest>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    service.delete_project(request.project_key).await?;
+    Ok(Json(serde_json::json!({ "ok": true })))
+}
+
 async fn list_prs(
     State(service): State<OrchestratorService>,
     Query(query): Query<ListPrsQuery>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let result = service.list_prs(query.project_key).await?;
     Ok(Json(serde_json::json!(result)))
+}
+
+async fn create_pr(
+    State(service): State<OrchestratorService>,
+    Json(request): Json<CreatePrRequest>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let result = service.create_pr(request.project_key, request.pr_url).await?;
+    Ok(Json(serde_json::json!(result)))
+}
+
+async fn start_review(
+    State(service): State<OrchestratorService>,
+    Json(request): Json<StartReviewRequest>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let repo_dir = PathBuf::from(request.repo_dir.unwrap_or_else(|| ".".to_string()));
+    let project_key = request.project_key;
+    let project_name = request.project_name;
+    let pr_url = request.pr_url;
+
+    let workflow_run_id = service
+        .start_review_run(project_key.clone(), project_name.clone(), pr_url.clone())
+        .await?;
+
+    let background_service = service.clone();
+    tokio::spawn(async move {
+        if let Err(error) = background_service
+            .execute_review_run(workflow_run_id, repo_dir, project_key, project_name, pr_url)
+            .await
+        {
+            let _ = background_service
+                .mark_workflow_failed(workflow_run_id, &error.to_string())
+                .await;
+        }
+    });
+
+    Ok(Json(serde_json::json!({ "workflow_run_id": workflow_run_id })))
 }
 
 async fn list_issues(

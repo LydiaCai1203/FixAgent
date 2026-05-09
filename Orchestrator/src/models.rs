@@ -63,6 +63,10 @@ pub struct PullRequestSummary {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IssueSummary {
     pub id: i64,
+    pub project_key: String,
+    pub project_name: String,
+    pub platform: String,
+    pub pr_number: i64,
     pub pull_request_id: i64,
     pub review_run_id: i64,
     pub severity: String,
