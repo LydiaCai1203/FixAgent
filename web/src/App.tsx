@@ -680,44 +680,43 @@ export default function App() {
                       }
                     }}
                   >
-                    <div className="brew-card-header">
-                      <div>
-                        <div className="brew-card-kicker">{issue.severity}</div>
-                        <strong>{issue.title}</strong>
-                      </div>
-                      <div className="brew-issue-actions">
-                        <span className="brew-chip">{issue.status}</span>
-                        <div className="brew-issue-menu-wrap">
-                          <button
-                            className="brew-issue-menu-button"
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              setOpenIssueMenuId((current) => current === issue.id ? null : issue.id);
-                            }}
-                            aria-label={`Issue actions for ${issue.title}`}
-                          >
-                            ...
-                          </button>
-                          {openIssueMenuId === issue.id ? (
-                            <div className="brew-issue-menu">
-                              {['open', 'resolved', 'needs_human', 'invalid'].map((statusOption) => (
-                                <button
-                                  key={statusOption}
-                                  className="brew-issue-menu-item"
-                                  onClick={(event) => {
-                                    event.stopPropagation();
-                                    void handleUpdateIssueStatus(issue.id, statusOption);
-                                    setOpenIssueMenuId(null);
-                                  }}
-                                >
-                                  Mark as {statusOption}
-                                </button>
-                              ))}
-                            </div>
-                          ) : null}
-                        </div>
-                      </div>
-                    </div>
+                     <div className="brew-card-header">
+                       <div>
+                         <div className="brew-card-kicker">{issue.severity}</div>
+                         <strong>{issue.title}</strong>
+                       </div>
+                       <div className="brew-issue-menu-wrap">
+                         <button
+                           className={`brew-status-dropdown brew-status-${issue.status}`}
+                           onClick={(event) => {
+                             event.stopPropagation();
+                             setOpenIssueMenuId((current) => current === issue.id ? null : issue.id);
+                           }}
+                         >
+                           {issue.status}
+                           <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                             <polyline points="6 9 12 15 18 9"></polyline>
+                           </svg>
+                         </button>
+                         {openIssueMenuId === issue.id ? (
+                           <div className="brew-issue-menu">
+                             {['open', 'resolved', 'needs_human', 'invalid'].map((statusOption) => (
+                               <button
+                                 key={statusOption}
+                                 className="brew-issue-menu-item"
+                                 onClick={(event) => {
+                                   event.stopPropagation();
+                                   void handleUpdateIssueStatus(issue.id, statusOption);
+                                   setOpenIssueMenuId(null);
+                                 }}
+                               >
+                                 {statusOption}
+                               </button>
+                             ))}
+                           </div>
+                         ) : null}
+                       </div>
+                     </div>
                     <p className="brew-card-meta">{issue.file_path}:{issue.start_line}-{issue.end_line}</p>
                     <div className="brew-chip-row">
                       <span className="brew-chip">PR #{issue.pr_number}</span>
