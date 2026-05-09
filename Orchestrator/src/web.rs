@@ -86,12 +86,12 @@ pub async fn serve_http(service: OrchestratorService, host: String, port: u16) -
         .route("/prs", get(list_prs).post(create_pr))
         .route("/reviews", post(start_review))
         .route("/issues", get(list_issues))
-        .route("/issues/:issue_id", patch(update_issue_status))
+        .route("/issues/{issue_id}", patch(update_issue_status))
         .route("/pr-stats", get(pr_stats))
         .route("/workflows", get(list_workflows).post(start_workflow))
         .route("/workflows/run-until-stable", post(run_until_stable))
-        .route("/workflows/:workflow_run_id", get(workflow_detail))
-        .route("/workflows/:workflow_run_id/rounds", get(workflow_rounds))
+        .route("/workflows/{workflow_run_id}", get(workflow_detail))
+        .route("/workflows/{workflow_run_id}/rounds", get(workflow_rounds))
         .with_state(service);
 
     let addr: SocketAddr = format!("{}:{}", host, port).parse()?;
