@@ -56,6 +56,14 @@ pub struct CreatePrRequest {
     pub pr_url: String,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct StartReviewRequest {
+    pub repo_dir: Option<String>,
+    pub project_key: String,
+    pub project_name: String,
+    pub pr_url: String,
+}
+
 #[derive(Debug, Serialize)]
 pub struct ApiErrorBody {
     pub error: String,
@@ -66,6 +74,7 @@ pub async fn serve_http(service: OrchestratorService, host: String, port: u16) -
         .route("/health", get(health))
         .route("/projects", get(list_projects).post(create_project))
         .route("/prs", get(list_prs).post(create_pr))
+        .route("/reviews", post(start_review))
         .route("/issues", get(list_issues))
         .route("/pr-stats", get(pr_stats))
         .route("/workflows", get(list_workflows).post(start_workflow))
@@ -113,6 +122,34 @@ async fn create_pr(
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let result = service.create_pr(request.project_key, request.pr_url).await?;
     Ok(Json(serde_json::json!(result)))
+}
+
+async fn start_review(
+    State(service): State<OrchestratorService>,
+    Json(request): Json<StartReviewRequest>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let repo_dir = PathBuf::from(request.repo_dir.unwrap_or_else(|| ".".to_string()));
+    let project_key = request.project_key;
+    let project_name = request.project_name;
+    let pr_url = request.pr_url;
+
+    let workflow_run_id = service
+        .start_review_run(project_key.clone(), project_name.clone(), pr_url.clone())
+        .await?;
+
+    let background_service = service.clone();
+    tokio::spawn(async move {
+        if let Err(error) = background_service
+            .execute_review_run(workflow_run_id, repo_dir, project_key, project_name, pr_url)
+            .await
+        {
+            let _ = background_service
+                .mark_workflow_failed(workflow_run_id, &error.to_string())
+                .await;
+        }
+    });
+
+    Ok(Json(serde_json::json!({ "workflow_run_id": workflow_run_id })))
 }
 
 async fn list_issues(

@@ -522,6 +522,77 @@ impl OrchestratorService {
         .await
     }
 
+    pub async fn start_review_run(
+        &self,
+        project_key: String,
+        project_name: String,
+        pr_url: String,
+    ) -> Result<i64> {
+        let (platform, pr_number) = detect_platform_name_and_pr_number(&pr_url).ok_or_else(|| {
+            OrchestratorError::Config("Unable to parse platform or PR number from URL".to_string())
+        })?;
+
+        let workflow_run_id: i64 = sqlx::query_scalar(
+            r#"
+            INSERT INTO workflow_runs (
+                project_key,
+                project_name,
+                platform,
+                pr_number,
+                pr_url,
+                status,
+                max_rounds,
+                summary
+            ) VALUES ($1, $2, $3, $4, $5, 'running', 1, $6)
+            RETURNING id
+            "#,
+        )
+        .bind(&project_key)
+        .bind(&project_name)
+        .bind(&platform)
+        .bind(pr_number)
+        .bind(&pr_url)
+        .bind("Review task accepted and waiting to start.")
+        .fetch_one(&self.pool)
+        .await?;
+
+        Ok(workflow_run_id)
+    }
+
+    pub async fn execute_review_run(
+        &self,
+        workflow_run_id: i64,
+        repo_dir: PathBuf,
+        project_key: String,
+        project_name: String,
+        pr_url: String,
+    ) -> Result<IngestReviewResult> {
+        self.update_workflow_progress(
+            workflow_run_id,
+            Some("ReviewAgent is analyzing the PR diff."),
+            None,
+            "ReviewAgent is analyzing the PR diff.",
+        )
+        .await?;
+
+        let review = self
+            .run_review(repo_dir, project_key, project_name, pr_url)
+            .await?;
+
+        self.finish_workflow_run(
+            workflow_run_id,
+            "completed",
+            "review_completed",
+            Some(&format!(
+                "ReviewAgent completed review_run_id={} and refreshed the issue pool.",
+                review.review_run_id
+            )),
+        )
+        .await?;
+
+        Ok(review)
+    }
+
     pub async fn start_workflow(
         &self,
         project_key: String,

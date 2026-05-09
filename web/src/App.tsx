@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 
+const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || `${window.location.origin}/api`).replace(/\/$/, '');
+
 type ProjectSummary = {
   id: number;
   project_key: string;
@@ -38,6 +40,21 @@ type IssueSummary = {
   updated_at: string;
 };
 
+type WorkflowRunSummary = {
+  id: number;
+  project_key: string;
+  project_name: string;
+  platform: string;
+  pr_number: number;
+  pr_url: string;
+  status: string;
+  stop_reason: string | null;
+  max_rounds: number;
+  summary: string | null;
+  started_at: string;
+  completed_at: string | null;
+};
+
 export default function App() {
   const [isProjectMenuOpen, setIsProjectMenuOpen] = useState(true);
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
@@ -53,6 +70,8 @@ export default function App() {
   const [showCreatePr, setShowCreatePr] = useState(false);
   const [newPrUrl, setNewPrUrl] = useState('');
   const [pendingProjectKeyForPr, setPendingProjectKeyForPr] = useState<string | null>(null);
+  const [workflowRuns, setWorkflowRuns] = useState<WorkflowRunSummary[]>([]);
+  const [reviewRunningPrIds, setReviewRunningPrIds] = useState<number[]>([]);
 
   const selectedProject = useMemo(
     () => projects.find((project) => project.project_key === selectedProjectKey) ?? null,
@@ -63,6 +82,14 @@ export default function App() {
     () => prs.find((pr) => pr.id === selectedPrId) ?? null,
     [prs, selectedPrId],
   );
+
+  const prIdentityById = useMemo(() => {
+    const map = new Map<number, string>();
+    for (const pr of prs) {
+      map.set(pr.id, `${pr.platform}:${pr.pr_number}`);
+    }
+    return map;
+  }, [prs]);
 
   const inferredProjectName = useMemo(() => {
     if (selectedPr) {
@@ -116,18 +143,41 @@ export default function App() {
       setPrs([]);
       setProjectIssues([]);
       setSelectedPrId(null);
+      setWorkflowRuns([]);
       return;
     }
 
     void loadPrs(selectedProjectKey);
-    void loadProjectIssues(selectedProjectKey);
+    void loadProjectIssues(selectedProjectKey, selectedPr);
+    void loadWorkflows(selectedProjectKey);
   }, [selectedProjectKey]);
+
+  useEffect(() => {
+    if (!selectedProjectKey) {
+      return;
+    }
+
+    void loadProjectIssues(selectedProjectKey, selectedPr);
+  }, [selectedProjectKey, selectedPrId]);
+
+  useEffect(() => {
+    if (!selectedProjectKey) {
+      return;
+    }
+
+    const intervalId = window.setInterval(() => {
+      void loadProjectIssues(selectedProjectKey, selectedPr);
+      void loadWorkflows(selectedProjectKey);
+    }, 1000);
+
+    return () => window.clearInterval(intervalId);
+  }, [selectedProjectKey, selectedPrId]);
 
   async function loadProjects() {
     setIsLoadingProjects(true);
     setError(null);
     try {
-      const response = await fetch('/api/projects');
+      const response = await fetch(`${API_BASE_URL}/projects`);
       if (!response.ok) {
         throw new Error(await readApiError(response));
       }
@@ -152,7 +202,7 @@ export default function App() {
     setIsLoadingPrs(true);
     setError(null);
     try {
-      const response = await fetch(`/api/prs?project_key=${encodeURIComponent(projectKey)}`);
+      const response = await fetch(`${API_BASE_URL}/prs?project_key=${encodeURIComponent(projectKey)}`);
       if (!response.ok) {
         throw new Error(await readApiError(response));
       }
@@ -173,9 +223,15 @@ export default function App() {
     }
   }
 
-  async function loadProjectIssues(projectKey: string) {
+  async function loadProjectIssues(projectKey: string, pr?: PullRequestSummary | null) {
     try {
-      const response = await fetch(`/api/issues?project_key=${encodeURIComponent(projectKey)}`);
+      const params = new URLSearchParams({ project_key: projectKey });
+      if (pr) {
+        params.set('platform', pr.platform);
+        params.set('pr_number', String(pr.pr_number));
+      }
+
+      const response = await fetch(`${API_BASE_URL}/issues?${params.toString()}`);
       if (!response.ok) {
         throw new Error(await readApiError(response));
       }
@@ -184,6 +240,27 @@ export default function App() {
     } catch (err) {
       setError(toErrorMessage(err));
       setProjectIssues([]);
+    }
+  }
+
+  async function loadWorkflows(projectKey: string) {
+    try {
+      const response = await fetch(`${API_BASE_URL}/workflows?project_key=${encodeURIComponent(projectKey)}`);
+      if (!response.ok) {
+        throw new Error(await readApiError(response));
+      }
+      const data = (await response.json()) as WorkflowRunSummary[];
+      setWorkflowRuns(data);
+      const runningPrNumbers = new Set(
+        data.filter((item) => item.status === 'running').map((item) => `${item.platform}:${item.pr_number}`),
+      );
+      setReviewRunningPrIds(
+        Array.from(prIdentityById.entries())
+          .filter(([, identity]) => runningPrNumbers.has(identity))
+          .map(([prId]) => prId),
+      );
+    } catch (err) {
+      setError(toErrorMessage(err));
     }
   }
 
@@ -198,7 +275,7 @@ export default function App() {
     if (!newProjectName.trim()) return;
     setError(null);
     try {
-      const response = await fetch('/api/projects', {
+      const response = await fetch(`${API_BASE_URL}/projects`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ project_name: newProjectName.trim() }),
@@ -218,7 +295,7 @@ export default function App() {
     if (!pendingProjectKeyForPr || !newPrUrl.trim()) return;
     setError(null);
     try {
-      const response = await fetch('/api/prs', {
+      const response = await fetch(`${API_BASE_URL}/prs`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ project_key: pendingProjectKeyForPr, pr_url: newPrUrl.trim() }),
@@ -229,13 +306,47 @@ export default function App() {
 
       setSelectedProjectKey(pendingProjectKeyForPr);
       await loadPrs(pendingProjectKeyForPr);
-      await loadProjectIssues(pendingProjectKeyForPr);
+      await loadProjectIssues(pendingProjectKeyForPr, selectedPr);
       setShowCreatePr(false);
       setNewPrUrl('');
       setPendingProjectKeyForPr(null);
     } catch (err) {
       setError(toErrorMessage(err));
     }
+  }
+
+  async function handleRunReview(pr: PullRequestSummary) {
+    const project = projects.find((item) => item.id === pr.project_id);
+    if (!project) {
+      setError('Project not found for this PR');
+      return;
+    }
+
+    setError(null);
+    try {
+      const response = await fetch(`${API_BASE_URL}/reviews`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          project_key: project.project_key,
+          project_name: project.project_name,
+          pr_url: pr.pr_url,
+        }),
+      });
+      if (!response.ok) {
+        throw new Error(await readApiError(response));
+      }
+
+      setSelectedProjectKey(project.project_key);
+      setSelectedPrId(pr.id);
+      await loadWorkflows(project.project_key);
+    } catch (err) {
+      setError(toErrorMessage(err));
+    }
+  }
+
+  function workflowStatusForPr(pr: PullRequestSummary) {
+    return workflowRuns.find((item) => item.platform === pr.platform && item.pr_number === pr.pr_number) ?? null;
   }
 
   return (
@@ -328,19 +439,39 @@ export default function App() {
             <div className="brew-card-grid brew-pr-card-grid">
               {prs.map((pr) => {
                 const summary = prIssueSummaryMap.get(pr.pr_number) ?? { total: 0, open: 0, needsHuman: 0, resolved: 0 };
+                const workflow = workflowStatusForPr(pr);
                 return (
-                  <button
+                  <div
                     key={pr.id}
                     className={pr.id === selectedPrId ? 'brew-card brew-card-active brew-pr-card' : 'brew-card brew-pr-card'}
                     onClick={() => setSelectedPrId(pr.id)}
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault();
+                        setSelectedPrId(pr.id);
+                      }
+                    }}
                   >
-                    <div className="brew-card-header brew-pr-card-header">
-                      <div>
-                        <div className="brew-card-kicker">{pr.platform}</div>
-                        <strong>PR #{pr.pr_number}</strong>
+                      <div className="brew-card-header brew-pr-card-header">
+                        <div>
+                          <div className="brew-card-kicker">{pr.platform}</div>
+                          <strong>PR #{pr.pr_number}</strong>
+                        </div>
+                        <div className="brew-pr-card-actions">
+                          <button
+                            className="brew-pr-run-button"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              void handleRunReview(pr);
+                            }}
+                            title={workflow?.summary ?? (reviewRunningPrIds.includes(pr.id) ? 'Review running' : 'Run review')}
+                          >
+                            {reviewRunningPrIds.includes(pr.id) ? '...' : 'R'}
+                          </button>
+                        </div>
                       </div>
-                      <span className="brew-card-mark brew-card-mark-pr">R</span>
-                    </div>
                     <p className="brew-card-meta">{pr.pr_url}</p>
                     <div className="brew-chip-row">
                       <span className="brew-chip">Bugs {summary.total}</span>
@@ -349,13 +480,44 @@ export default function App() {
                       <span className="brew-chip">Resolved {summary.resolved}</span>
                     </div>
                     <div className="brew-card-footer">Updated {formatDateTime(pr.updated_at)}</div>
-                  </button>
+                   </div>
                 );
               })}
               {prs.length === 0 && !isLoadingPrs ? <div className="brew-empty-block">This project has no PR cards yet.</div> : null}
             </div>
           </section>
         </section>
+
+        {selectedPr ? (
+          <section className="brew-panel brew-bug-pool-panel">
+            <div className="brew-panel-header">
+              <div>
+                <h3>Bug Pool</h3>
+              </div>
+            </div>
+
+            <div className="brew-card-grid brew-bug-card-grid">
+              {projectIssues.map((issue) => (
+                <article key={issue.id} className="brew-card brew-bug-card">
+                  <div className="brew-card-header">
+                    <div>
+                      <div className="brew-card-kicker">{issue.severity}</div>
+                      <strong>{issue.title}</strong>
+                    </div>
+                    <span className="brew-chip">{issue.status}</span>
+                  </div>
+                  <p className="brew-card-meta">{issue.file_path}:{issue.start_line}-{issue.end_line}</p>
+                  <div className="brew-chip-row">
+                    <span className="brew-chip">PR #{issue.pr_number}</span>
+                    <span className="brew-chip">Confidence {issue.confidence ?? '-'}</span>
+                  </div>
+                  <div className="brew-card-footer">Updated {formatDateTime(issue.updated_at)}</div>
+                </article>
+              ))}
+              {projectIssues.length === 0 ? <div className="brew-empty-block">This PR has no bugs in pool.</div> : null}
+            </div>
+          </section>
+        ) : null}
 
         {error ? <div className="brew-error-bar">{error}</div> : null}
       </main>
