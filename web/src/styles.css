@@ -506,6 +506,70 @@ button {
   border-radius: 18px;
   background: linear-gradient(180deg, rgba(17, 60, 51, 0.96), rgba(13, 45, 38, 0.98));
   cursor: pointer;
+  position: relative;
+}
+
+.brew-issue-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  position: relative;
+}
+
+.brew-issue-menu-wrap {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.brew-issue-menu-button {
+  width: 24px;
+  height: 24px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.brew-issue-menu-button:hover {
+  color: var(--text-primary);
+  background: rgba(201, 223, 114, 0.08);
+}
+
+.brew-issue-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  min-width: 160px;
+  padding: 6px;
+  border-radius: 10px;
+  border: 1px solid rgba(201, 223, 114, 0.1);
+  background: rgba(12, 44, 37, 0.98);
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.32);
+  display: grid;
+  gap: 2px;
+  z-index: 20;
+}
+
+.brew-issue-menu-item {
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  text-align: left;
+  border-radius: 8px;
+  padding: 7px 10px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.brew-issue-menu-item:hover {
+  background: rgba(201, 223, 114, 0.08);
+  color: var(--text-primary);
 }
 
 .brew-bug-pool-panel {

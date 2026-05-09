@@ -408,6 +408,79 @@ impl OrchestratorService {
             .collect())
     }
 
+    pub async fn update_issue_status(
+        &self,
+        issue_id: i64,
+        new_status: String,
+    ) -> Result<IssueSummary> {
+        let valid_statuses = ["open", "reopened", "resolved", "needs_human", "invalid", "claimed"];
+        if !valid_statuses.contains(&new_status.as_str()) {
+            return Err(OrchestratorError::Config(format!(
+                "Invalid status '{}'. Valid statuses are: {:?}",
+                new_status, valid_statuses
+            )));
+        }
+
+        let row = sqlx::query_as::<_, (String, String, String, i64, i64, i64, i64, String, String, i64, i64, String, String, String, Option<String>, Option<i32>, chrono::DateTime<Utc>, chrono::DateTime<Utc>)>(
+            r#"
+            UPDATE issues i
+            SET status = $1,
+                updated_at = NOW()
+            FROM pull_requests pr, projects p
+            WHERE i.id = $2
+              AND pr.id = i.pull_request_id
+              AND p.id = pr.project_id
+            RETURNING
+                p.project_key,
+                p.project_name,
+                pr.platform,
+                pr.pr_number,
+                i.id,
+                i.pull_request_id,
+                i.review_run_id,
+                i.severity,
+                i.file_path,
+                i.start_line,
+                i.end_line,
+                i.title,
+                i.description,
+                i.suggestion,
+                i.suggestion_code,
+                i.status,
+                i.confidence,
+                i.created_at,
+                i.updated_at
+            "#,
+        )
+        .bind(&new_status)
+        .bind(issue_id)
+        .fetch_optional(&self.pool)
+        .await?
+        .ok_or_else(|| OrchestratorError::Config(format!("Issue not found: {}", issue_id)))?;
+
+        Ok(IssueSummary {
+            id: row.4,
+            project_key: row.0,
+            project_name: row.1,
+            platform: row.2,
+            pr_number: row.3,
+            pull_request_id: row.5,
+            review_run_id: row.6,
+            severity: row.7,
+            file_path: row.8,
+            start_line: row.9,
+            end_line: row.10,
+            title: row.11,
+            description: row.12,
+            suggestion: row.13,
+            suggestion_code: row.14,
+            status: row.15,
+            confidence: row.16,
+            created_at: row.17,
+            updated_at: row.18,
+        })
+    }
+
     pub async fn list_workflows(
         &self,
         project_key: Option<String>,

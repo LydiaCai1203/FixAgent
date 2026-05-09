@@ -91,6 +91,7 @@ export default function App() {
   const [openProjectMenuKey, setOpenProjectMenuKey] = useState<string | null>(null);
   const [hoveredReviewPrId, setHoveredReviewPrId] = useState<number | null>(null);
   const [selectedIssueId, setSelectedIssueId] = useState<number | null>(null);
+  const [openIssueMenuId, setOpenIssueMenuId] = useState<number | null>(null);
 
   const [workflowRuns, setWorkflowRuns] = useState<WorkflowRunSummary[]>([]);
   const [reviewRunningPrIds, setReviewRunningPrIds] = useState<number[]>([]);
@@ -433,6 +434,23 @@ export default function App() {
     }
   }
 
+  async function handleUpdateIssueStatus(issueId: number, newStatus: string) {
+    setError(null);
+    try {
+      const response = await fetch(`${API_BASE_URL}/issues/${issueId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: newStatus }),
+      });
+      if (!response.ok) {
+        throw new Error(await readApiError(response));
+      }
+      await loadProjectIssues(selectedProjectKey ?? '', selectedPr);
+    } catch (err) {
+      setError(toErrorMessage(err));
+    }
+  }
+
   function workflowStatusForPr(pr: PullRequestSummary) {
     return workflowRuns.find((item) => item.platform === pr.platform && item.pr_number === pr.pr_number) ?? null;
   }
@@ -667,7 +685,38 @@ export default function App() {
                         <div className="brew-card-kicker">{issue.severity}</div>
                         <strong>{issue.title}</strong>
                       </div>
-                      <span className="brew-chip">{issue.status}</span>
+                      <div className="brew-issue-actions">
+                        <span className="brew-chip">{issue.status}</span>
+                        <div className="brew-issue-menu-wrap">
+                          <button
+                            className="brew-issue-menu-button"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              setOpenIssueMenuId((current) => current === issue.id ? null : issue.id);
+                            }}
+                            aria-label={`Issue actions for ${issue.title}`}
+                          >
+                            ...
+                          </button>
+                          {openIssueMenuId === issue.id ? (
+                            <div className="brew-issue-menu">
+                              {['open', 'resolved', 'needs_human', 'invalid'].map((statusOption) => (
+                                <button
+                                  key={statusOption}
+                                  className="brew-issue-menu-item"
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    void handleUpdateIssueStatus(issue.id, statusOption);
+                                    setOpenIssueMenuId(null);
+                                  }}
+                                >
+                                  Mark as {statusOption}
+                                </button>
+                              ))}
+                            </div>
+                          ) : null}
+                        </div>
+                      </div>
                     </div>
                     <p className="brew-card-meta">{issue.file_path}:{issue.start_line}-{issue.end_line}</p>
                     <div className="brew-chip-row">

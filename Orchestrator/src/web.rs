@@ -35,6 +35,11 @@ pub struct ListWorkflowsQuery {
 }
 
 #[derive(Debug, Deserialize)]
+pub struct UpdateIssueStatusRequest {
+    pub status: String,
+}
+
+#[derive(Debug, Deserialize)]
 pub struct RunUntilStableRequest {
     pub repo_dir: Option<String>,
     pub project_key: String,
@@ -81,6 +86,7 @@ pub async fn serve_http(service: OrchestratorService, host: String, port: u16) -
         .route("/prs", get(list_prs).post(create_pr))
         .route("/reviews", post(start_review))
         .route("/issues", get(list_issues))
+        .route("/issues/{issue_id}", patch(update_issue_status))
         .route("/pr-stats", get(pr_stats))
         .route("/workflows", get(list_workflows).post(start_workflow))
         .route("/workflows/run-until-stable", post(run_until_stable))
@@ -171,6 +177,17 @@ async fn list_issues(
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let result = service
         .list_issues(query.project_key, query.platform, query.pr_number, query.status)
+        .await?;
+    Ok(Json(serde_json::json!(result)))
+}
+
+async fn update_issue_status(
+    State(service): State<OrchestratorService>,
+    Path(issue_id): Path<i64>,
+    Json(request): Json<UpdateIssueStatusRequest>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let result = service
+        .update_issue_status(issue_id, request.status)
         .await?;
     Ok(Json(serde_json::json!(result)))
 }
