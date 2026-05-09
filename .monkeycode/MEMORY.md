@@ -148,6 +148,18 @@ Agent 在任务执行过程中发现的条目应遵循以下格式：
 - Date: 2026-05-08
 - Context: 用户继续完善 Project 页面和 PR 卡片体验
 - Instructions:
-  - Project 页面需要提供 `Add PR` 按钮入口。
   - `project name` 优先从已有 PR 信息中推导，而不是完全依赖后端返回字段。
   - PR 卡片需要继续设计优化，增强辨识度和产品感。
+
+[左侧导航与品牌位要求]
+- Date: 2026-05-08
+- Context: 用户继续细化左侧菜单视觉和品牌呈现
+- Instructions:
+  - 左侧菜单应采用一级 `Project` + 二级 project 列表的结构。
+  - 左侧视觉要简单、大方，不要做得过满或过重。
+  - 最上方品牌位需要使用工作区里的 `monkeycode1.png` 图标。
+  - 左侧二级 project 列表应更像目录树，而不是一组按钮。
+  - 展开后不需要额外显示 `Project List` 这类重复说明文字。
+  - 左侧展开区不需要 `Refresh` 按钮。
+  - 顶部不需要 `Project → PRPool`、`Select a project`、`English Mild Ale Palette` 这类无用标题文案。
+  - 右上角不需要 `Refresh` 和 `Open PR` 按钮。

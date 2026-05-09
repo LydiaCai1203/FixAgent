@@ -45,6 +45,11 @@ pub struct RunUntilStableRequest {
     pub dry_run: Option<bool>,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct CreateProjectRequest {
+    pub project_name: String,
+}
+
 #[derive(Debug, Serialize)]
 pub struct ApiErrorBody {
     pub error: String,
@@ -53,7 +58,7 @@ pub struct ApiErrorBody {
 pub async fn serve_http(service: OrchestratorService, host: String, port: u16) -> anyhow::Result<()> {
     let app = Router::new()
         .route("/health", get(health))
-        .route("/projects", get(list_projects))
+        .route("/projects", get(list_projects).post(create_project))
         .route("/prs", get(list_prs))
         .route("/issues", get(list_issues))
         .route("/pr-stats", get(pr_stats))
@@ -77,6 +82,14 @@ async fn list_projects(
     State(service): State<OrchestratorService>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let result = service.list_projects().await?;
+    Ok(Json(serde_json::json!(result)))
+}
+
+async fn create_project(
+    State(service): State<OrchestratorService>,
+    Json(request): Json<CreateProjectRequest>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let result = service.create_project(request.project_name).await?;
     Ok(Json(serde_json::json!(result)))
 }
 

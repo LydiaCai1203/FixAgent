@@ -100,6 +100,36 @@ impl OrchestratorService {
             .collect())
     }
 
+    pub async fn create_project(&self, project_name: String) -> Result<ProjectSummary> {
+        let project_name = project_name.trim().to_string();
+        if project_name.is_empty() {
+            return Err(OrchestratorError::Config("project_name is required".to_string()));
+        }
+
+        let project_key = build_project_key(&project_name);
+        let row = sqlx::query_as::<_, (i64, String, String, chrono::DateTime<Utc>, chrono::DateTime<Utc>)>(
+            r#"
+            INSERT INTO projects (project_key, project_name)
+            VALUES ($1, $2)
+            ON CONFLICT (project_key)
+            DO UPDATE SET project_name = EXCLUDED.project_name, updated_at = NOW()
+            RETURNING id, project_key, project_name, created_at, updated_at
+            "#,
+        )
+        .bind(&project_key)
+        .bind(&project_name)
+        .fetch_one(&self.pool)
+        .await?;
+
+        Ok(ProjectSummary {
+            id: row.0,
+            project_key: row.1,
+            project_name: row.2,
+            created_at: row.3,
+            updated_at: row.4,
+        })
+    }
+
     pub async fn list_prs(&self, project_key: String) -> Result<Vec<PullRequestSummary>> {
         let rows = sqlx::query_as::<_, (i64, i64, String, i64, String, Option<String>, chrono::DateTime<Utc>, chrono::DateTime<Utc>)>(
             r#"
@@ -1376,6 +1406,31 @@ fn normalize_title(title: &str) -> String {
         .chars()
         .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
         .collect::<String>()
+}
+
+fn build_project_key(project_name: &str) -> String {
+    let mut key = String::with_capacity(project_name.len());
+    let mut last_was_dash = false;
+
+    for ch in project_name.trim().chars() {
+        if ch.is_ascii_alphanumeric() {
+            key.push(ch.to_ascii_lowercase());
+            last_was_dash = false;
+        } else if !last_was_dash && !key.is_empty() {
+            key.push('-');
+            last_was_dash = true;
+        }
+    }
+
+    while key.ends_with('-') {
+        key.pop();
+    }
+
+    if key.is_empty() {
+        "project".to_string()
+    } else {
+        key
+    }
 }
 
 fn map_fix_status(status: &FixExecutionStatus) -> &'static str {

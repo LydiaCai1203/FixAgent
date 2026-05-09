@@ -48,6 +48,8 @@ export default function App() {
   const [isLoadingProjects, setIsLoadingProjects] = useState(true);
   const [isLoadingPrs, setIsLoadingPrs] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showCreateProject, setShowCreateProject] = useState(false);
+  const [newProjectName, setNewProjectName] = useState('');
 
   const selectedProject = useMemo(
     () => projects.find((project) => project.project_key === selectedProjectKey) ?? null,
@@ -189,16 +191,33 @@ export default function App() {
     window.open(selectedPr.pr_url, '_blank', 'noopener,noreferrer');
   }
 
-  function handleAddPr() {
-    setActiveNav('prpool');
-    setError('Add PR 入口已预留，后续接入创建表单或导入流程。');
+  async function handleCreateProject() {
+    if (!newProjectName.trim()) return;
+    setError(null);
+    try {
+      const response = await fetch('/api/projects', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ project_name: newProjectName.trim() }),
+      });
+      if (!response.ok) {
+        throw new Error(await readApiError(response));
+      }
+      await loadProjects();
+      setShowCreateProject(false);
+      setNewProjectName('');
+    } catch (err) {
+      setError(toErrorMessage(err));
+    }
   }
 
   return (
     <div className="brew-shell">
       <aside className="brew-sidebar">
         <div className="brew-brand">
-          <div className="brew-brand-mark">M</div>
+          <div className="brew-brand-mark">
+            <img className="brew-brand-image" src="/monkeycode1.png" alt="MonkeyCode" />
+          </div>
           <div>
             <div className="brew-brand-kicker">FixAgent Console</div>
             <h1>PR Review Board</h1>
@@ -206,20 +225,16 @@ export default function App() {
         </div>
 
         <nav className="brew-nav">
+          <button className="brew-nav-item-add" onClick={() => { setNewProjectName(''); setShowCreateProject(true); }}>
+            <span className="brew-nav-label">+ Add Project</span>
+          </button>
           <button className={isProjectMenuOpen ? 'brew-nav-item brew-nav-item-active' : 'brew-nav-item'} onClick={() => setIsProjectMenuOpen((value) => !value)}>
-            <span>Project</span>
+            <span className="brew-nav-label">Project</span>
             <span className="brew-nav-caret">{isProjectMenuOpen ? '-' : '+'}</span>
           </button>
         </nav>
 
         {isProjectMenuOpen ? <section className="brew-sidebar-section brew-sidebar-subsection">
-          <div className="brew-section-header">
-            <span>Project List</span>
-            <button className="brew-link-button" onClick={() => void loadProjects()} disabled={isLoadingProjects}>
-              Refresh
-            </button>
-          </div>
-
           <div className="brew-project-list">
             {projects.map((project) => (
               <button
@@ -229,6 +244,7 @@ export default function App() {
                   setSelectedProjectKey(project.project_key);
                 }}
               >
+                <span className="brew-project-branch" />
                 <div className="brew-project-chip-title">{project.project_name}</div>
                 <div className="brew-project-chip-meta">{project.project_key}</div>
               </button>
@@ -240,51 +256,19 @@ export default function App() {
 
       <main className="brew-main">
         <header className="brew-topbar">
-          <div>
-              <div className="brew-topbar-kicker">Project → PRPool</div>
-              <div className="brew-topbar-title-row">
-                <h2>{inferredProjectName}</h2>
-                <span className="brew-tag">English Mild Ale Palette</span>
-              </div>
-          </div>
-
-          <div className="brew-topbar-actions">
-            <button className="brew-ghost-button" onClick={() => {
-              void loadProjects();
-              if (selectedProjectKey) {
-                void loadPrs(selectedProjectKey);
-                void loadProjectIssues(selectedProjectKey);
-              }
-            }}>
-              Refresh
-            </button>
-            <button className="brew-ghost-button" onClick={openSelectedPr} disabled={!selectedPr}>
-              Open PR
-            </button>
-          </div>
         </header>
 
         <section className="brew-hero-card">
-          <div className="brew-hero-copy">
-            <div className="brew-hero-badge">PR Pool</div>
-            <h3>A clean PR board with only pull request cards.</h3>
-            <p>
-              {selectedProject
-                ? `${deriveProjectNameFromProject(selectedProject, prs)} currently has ${projectMetrics.prs} PR cards and ${projectMetrics.bugs} total review bugs.`
-                : 'Choose a project to unlock the PR pool.'}
-            </p>
-          </div>
-
           <div className="brew-hero-stats">
-            <div className="brew-stat-block">
+            <div className="brew-stat-inline">
               <span>Projects</span>
               <strong>{String(projects.length).padStart(2, '0')}</strong>
             </div>
-            <div className="brew-stat-block">
+            <div className="brew-stat-inline">
               <span>PRs</span>
               <strong>{String(projectMetrics.prs).padStart(2, '0')}</strong>
             </div>
-            <div className="brew-stat-block">
+            <div className="brew-stat-inline">
               <span>Open Bugs</span>
               <strong>{String(projectMetrics.open).padStart(2, '0')}</strong>
             </div>
@@ -292,18 +276,11 @@ export default function App() {
         </section>
 
         <section className="brew-prpool-layout">
-          <div className="brew-prpool-toolbar">
-            <div className="brew-panel-note">Only PR cards here.</div>
-            <button className="brew-add-button" onClick={handleAddPr}>Add PR</button>
-          </div>
-
           <section className="brew-panel brew-prpool-panel">
             <div className="brew-panel-header">
               <div>
-                <div className="brew-panel-kicker">PR Cards</div>
                 <h3>PR Pool</h3>
               </div>
-              <div className="brew-panel-note">Compact PR card board.</div>
             </div>
 
             <div className="brew-card-grid brew-pr-card-grid">
@@ -315,7 +292,7 @@ export default function App() {
                     className={pr.id === selectedPrId ? 'brew-card brew-card-active brew-pr-card' : 'brew-card brew-pr-card'}
                     onClick={() => setSelectedPrId(pr.id)}
                   >
-                    <div className="brew-card-header">
+                    <div className="brew-card-header brew-pr-card-header">
                       <div>
                         <div className="brew-card-kicker">{pr.platform}</div>
                         <strong>PR #{pr.pr_number}</strong>
@@ -340,6 +317,26 @@ export default function App() {
 
         {error ? <div className="brew-error-bar">{error}</div> : null}
       </main>
+
+      {showCreateProject ? (
+        <div className="brew-modal-overlay" onClick={() => setShowCreateProject(false)}>
+          <div className="brew-modal" onClick={(e) => e.stopPropagation()}>
+            <h3>Create Project</h3>
+            <input
+              className="brew-modal-input"
+              placeholder="Project name"
+              value={newProjectName}
+              onChange={(e) => setNewProjectName(e.target.value)}
+              autoFocus
+              onKeyDown={(e) => e.key === 'Enter' && void handleCreateProject()}
+            />
+            <div className="brew-modal-actions">
+              <button className="brew-btn-secondary" onClick={() => setShowCreateProject(false)}>取消</button>
+              <button className="brew-btn-primary" onClick={() => void handleCreateProject()}>确定</button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
