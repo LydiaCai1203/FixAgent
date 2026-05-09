@@ -404,13 +404,18 @@ button {
 }
 
 .brew-prpool-layout {
-  display: block;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr);
+  gap: 22px;
+  align-items: start;
 }
 
 .brew-prpool-panel {
-  width: 100%;
-  max-width: none;
   min-height: 560px;
+}
+
+.brew-prpool-panel .brew-pr-card-grid {
+  grid-template-columns: 1fr;
 }
 
 .brew-panel {
@@ -503,7 +508,7 @@ button {
 }
 
 .brew-bug-pool-panel {
-  margin-top: 20px;
+  min-height: 560px;
 }
 
 .brew-card:hover {
@@ -847,6 +852,10 @@ button {
   .brew-project-card-grid,
   .brew-pr-card-grid,
   .brew-bug-card-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .brew-prpool-layout {
     grid-template-columns: 1fr;
   }
 }
