@@ -50,6 +50,12 @@ pub struct CreateProjectRequest {
     pub project_name: String,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct CreatePrRequest {
+    pub project_key: String,
+    pub pr_url: String,
+}
+
 #[derive(Debug, Serialize)]
 pub struct ApiErrorBody {
     pub error: String,
@@ -59,7 +65,7 @@ pub async fn serve_http(service: OrchestratorService, host: String, port: u16) -
     let app = Router::new()
         .route("/health", get(health))
         .route("/projects", get(list_projects).post(create_project))
-        .route("/prs", get(list_prs))
+        .route("/prs", get(list_prs).post(create_pr))
         .route("/issues", get(list_issues))
         .route("/pr-stats", get(pr_stats))
         .route("/workflows", get(list_workflows).post(start_workflow))
@@ -98,6 +104,14 @@ async fn list_prs(
     Query(query): Query<ListPrsQuery>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let result = service.list_prs(query.project_key).await?;
+    Ok(Json(serde_json::json!(result)))
+}
+
+async fn create_pr(
+    State(service): State<OrchestratorService>,
+    Json(request): Json<CreatePrRequest>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let result = service.create_pr(request.project_key, request.pr_url).await?;
     Ok(Json(serde_json::json!(result)))
 }
 

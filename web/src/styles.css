@@ -210,10 +210,45 @@ button {
   width: 100%;
   border: 1px solid transparent;
   background: transparent;
-  padding: 7px 8px 7px 12px;
+  padding: 0;
   border-radius: 10px;
   text-align: left;
   position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.brew-project-chip-main {
+  flex: 1;
+  min-width: 0;
+  background: transparent;
+  border: none;
+  padding: 7px 8px 7px 12px;
+  text-align: left;
+  position: relative;
+}
+
+.brew-project-chip-add {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  margin-right: 8px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  border-radius: 999px;
+  font-size: 14px;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.brew-project-chip-add:hover {
+  color: var(--text-primary);
+  background: rgba(201, 223, 114, 0.08);
 }
 
 .brew-project-chip-active {

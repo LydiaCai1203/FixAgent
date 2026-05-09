@@ -50,6 +50,9 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [showCreateProject, setShowCreateProject] = useState(false);
   const [newProjectName, setNewProjectName] = useState('');
+  const [showCreatePr, setShowCreatePr] = useState(false);
+  const [newPrUrl, setNewPrUrl] = useState('');
+  const [pendingProjectKeyForPr, setPendingProjectKeyForPr] = useState<string | null>(null);
 
   const selectedProject = useMemo(
     () => projects.find((project) => project.project_key === selectedProjectKey) ?? null,
@@ -211,6 +214,30 @@ export default function App() {
     }
   }
 
+  async function handleCreatePr() {
+    if (!pendingProjectKeyForPr || !newPrUrl.trim()) return;
+    setError(null);
+    try {
+      const response = await fetch('/api/prs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ project_key: pendingProjectKeyForPr, pr_url: newPrUrl.trim() }),
+      });
+      if (!response.ok) {
+        throw new Error(await readApiError(response));
+      }
+
+      setSelectedProjectKey(pendingProjectKeyForPr);
+      await loadPrs(pendingProjectKeyForPr);
+      await loadProjectIssues(pendingProjectKeyForPr);
+      setShowCreatePr(false);
+      setNewPrUrl('');
+      setPendingProjectKeyForPr(null);
+    } catch (err) {
+      setError(toErrorMessage(err));
+    }
+  }
+
   return (
     <div className="brew-shell">
       <aside className="brew-sidebar">
@@ -237,17 +264,32 @@ export default function App() {
         {isProjectMenuOpen ? <section className="brew-sidebar-section brew-sidebar-subsection">
           <div className="brew-project-list">
             {projects.map((project) => (
-              <button
+              <div
                 key={project.project_key}
                 className={project.project_key === selectedProjectKey ? 'brew-project-chip brew-project-chip-active' : 'brew-project-chip'}
-                onClick={() => {
-                  setSelectedProjectKey(project.project_key);
-                }}
               >
-                <span className="brew-project-branch" />
-                <div className="brew-project-chip-title">{project.project_name}</div>
-                <div className="brew-project-chip-meta">{project.project_key}</div>
-              </button>
+                <button
+                  className="brew-project-chip-main"
+                  onClick={() => {
+                    setSelectedProjectKey(project.project_key);
+                  }}
+                >
+                  <span className="brew-project-branch" />
+                  <div className="brew-project-chip-title">{project.project_name}</div>
+                  <div className="brew-project-chip-meta">{project.project_key}</div>
+                </button>
+                <button
+                  className="brew-project-chip-add"
+                  onClick={() => {
+                    setPendingProjectKeyForPr(project.project_key);
+                    setNewPrUrl('');
+                    setShowCreatePr(true);
+                  }}
+                  aria-label={`Add PR for ${project.project_name}`}
+                >
+                  +
+                </button>
+              </div>
             ))}
             {projects.length === 0 && !isLoadingProjects ? <div className="brew-empty-mini">No projects yet.</div> : null}
           </div>
@@ -333,6 +375,26 @@ export default function App() {
             <div className="brew-modal-actions">
               <button className="brew-btn-secondary" onClick={() => setShowCreateProject(false)}>取消</button>
               <button className="brew-btn-primary" onClick={() => void handleCreateProject()}>确定</button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {showCreatePr ? (
+        <div className="brew-modal-overlay" onClick={() => setShowCreatePr(false)}>
+          <div className="brew-modal" onClick={(e) => e.stopPropagation()}>
+            <h3>添加 PR</h3>
+            <input
+              className="brew-modal-input"
+              placeholder="PR URL"
+              value={newPrUrl}
+              onChange={(e) => setNewPrUrl(e.target.value)}
+              autoFocus
+              onKeyDown={(e) => e.key === 'Enter' && void handleCreatePr()}
+            />
+            <div className="brew-modal-actions">
+              <button className="brew-btn-secondary" onClick={() => setShowCreatePr(false)}>取消</button>
+              <button className="brew-btn-primary" onClick={() => void handleCreatePr()}>确定</button>
             </div>
           </div>
         </div>

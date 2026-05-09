@@ -159,6 +159,61 @@ impl OrchestratorService {
             .collect())
     }
 
+    pub async fn create_pr(&self, project_key: String, pr_url: String) -> Result<PullRequestSummary> {
+        let project_key = project_key.trim().to_string();
+        let pr_url = pr_url.trim().to_string();
+
+        if project_key.is_empty() {
+            return Err(OrchestratorError::Config("project_key is required".to_string()));
+        }
+        if pr_url.is_empty() {
+            return Err(OrchestratorError::Config("pr_url is required".to_string()));
+        }
+
+        let (platform, pr_number) = detect_platform_name_and_pr_number(&pr_url).ok_or_else(|| {
+            OrchestratorError::Config("Unable to parse platform or PR number from URL".to_string())
+        })?;
+
+        let project_id = sqlx::query_scalar::<_, i64>(
+            r#"
+            SELECT id
+            FROM projects
+            WHERE project_key = $1
+            "#,
+        )
+        .bind(&project_key)
+        .fetch_optional(&self.pool)
+        .await?
+        .ok_or_else(|| OrchestratorError::Config(format!("Project not found: {}", project_key)))?;
+
+        let row = sqlx::query_as::<_, (i64, i64, String, i64, String, Option<String>, chrono::DateTime<Utc>, chrono::DateTime<Utc>)>(
+            r#"
+            INSERT INTO pull_requests (project_id, platform, pr_number, pr_url, latest_commit_sha)
+            VALUES ($1, $2, $3, $4, NULL)
+            ON CONFLICT (project_id, platform, pr_number)
+            DO UPDATE SET pr_url = EXCLUDED.pr_url, updated_at = NOW()
+            RETURNING id, project_id, platform, pr_number, pr_url, latest_commit_sha, created_at, updated_at
+            "#,
+        )
+        .bind(project_id)
+        .bind(&platform)
+        .bind(pr_number)
+        .bind(&pr_url)
+        .fetch_one(&self.pool)
+        .await?;
+
+        Ok(PullRequestSummary {
+            id: row.0,
+            project_id: row.1,
+            platform: row.2,
+            pr_number: row.3,
+            pr_url: row.4,
+            latest_commit_sha: row.5,
+            created_at: row.6,
+            updated_at: row.7,
+        })
+    }
+
     pub async fn list_issues(
         &self,
         project_key: Option<String>,
