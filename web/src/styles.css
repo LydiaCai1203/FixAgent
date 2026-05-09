@@ -526,7 +526,7 @@ button {
 
 .brew-pr-run-button:disabled {
   opacity: 0.72;
-  cursor: wait;
+  cursor: default;
 }
 
 .brew-pr-run-spinner {

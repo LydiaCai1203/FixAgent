@@ -24,7 +24,9 @@ impl OrchestratorService {
         let database_url = std::env::var("DATABASE_URL")
             .map_err(|_| OrchestratorError::Config("DATABASE_URL is required".to_string()))?;
         let pool = db::connect(&database_url).await?;
-        Ok(Self { pool })
+        let service = Self { pool };
+        service.recover_interrupted_runs().await?;
+        Ok(service)
     }
 
     pub async fn run_review(
@@ -1401,6 +1403,36 @@ impl OrchestratorService {
         .await?;
 
         Ok(count)
+    }
+
+    async fn recover_interrupted_runs(&self) -> Result<()> {
+        sqlx::query(
+            r#"
+            UPDATE workflow_runs
+            SET status = 'failed',
+                stop_reason = 'service_restarted',
+                summary = 'Task interrupted because the orchestrator service restarted before completion.',
+                completed_at = NOW()
+            WHERE status = 'running'
+            "#,
+        )
+        .execute(&self.pool)
+        .await?;
+
+        sqlx::query(
+            r#"
+            UPDATE workflow_rounds
+            SET status = 'failed',
+                stop_reason = 'service_restarted',
+                summary = 'Round interrupted because the orchestrator service restarted before completion.',
+                completed_at = NOW()
+            WHERE status = 'running'
+            "#,
+        )
+        .execute(&self.pool)
+        .await?;
+
+        Ok(())
     }
 
     async fn finish_workflow_run(
