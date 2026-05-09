@@ -88,6 +88,7 @@ export default function App() {
   const [workflowRuns, setWorkflowRuns] = useState<WorkflowRunSummary[]>([]);
   const [reviewRunningPrIds, setReviewRunningPrIds] = useState<number[]>([]);
   const [workflowRounds, setWorkflowRounds] = useState<WorkflowRoundSummary[]>([]);
+  const [pendingReviewPrIds, setPendingReviewPrIds] = useState<number[]>([]);
 
   const selectedProject = useMemo(
     () => projects.find((project) => project.project_key === selectedProjectKey) ?? null,
@@ -278,6 +279,7 @@ export default function App() {
           .filter(([, identity]) => runningPrNumbers.has(identity))
           .map(([prId]) => prId),
       );
+      setPendingReviewPrIds((current) => current.filter((prId) => !prIdentityById.has(prId) || !runningPrNumbers.has(prIdentityById.get(prId) ?? '')));
     } catch (err) {
       setError(toErrorMessage(err));
     }
@@ -366,6 +368,7 @@ export default function App() {
     }
 
     setError(null);
+    setPendingReviewPrIds((current) => (current.includes(pr.id) ? current : [...current, pr.id]));
     try {
       const response = await fetch(`${API_BASE_URL}/reviews`, {
         method: 'POST',
@@ -385,6 +388,7 @@ export default function App() {
       await loadWorkflows(project.project_key);
       await loadSelectedWorkflowRounds(pr);
     } catch (err) {
+      setPendingReviewPrIds((current) => current.filter((item) => item !== pr.id));
       setError(toErrorMessage(err));
     }
   }
@@ -394,6 +398,10 @@ export default function App() {
   }
 
   function reviewTooltipForPr(pr: PullRequestSummary) {
+    if (pendingReviewPrIds.includes(pr.id)) {
+      return 'Review task is being submitted...';
+    }
+
     const workflow = workflowStatusForPr(pr);
     if (!workflow) {
       return 'Run review';
@@ -505,6 +513,7 @@ export default function App() {
               {prs.map((pr) => {
                 const summary = prIssueSummaryMap.get(pr.pr_number) ?? { total: 0, open: 0, needsHuman: 0, resolved: 0 };
                 const workflow = workflowStatusForPr(pr);
+                const isReviewBusy = pendingReviewPrIds.includes(pr.id) || reviewRunningPrIds.includes(pr.id);
                 return (
                   <div
                     key={pr.id}
@@ -532,8 +541,9 @@ export default function App() {
                               void handleRunReview(pr);
                             }}
                             title={reviewTooltipForPr(pr)}
+                            disabled={isReviewBusy}
                           >
-                            {reviewRunningPrIds.includes(pr.id) ? '...' : 'R'}
+                            {isReviewBusy ? '...' : 'R'}
                           </button>
                         </div>
                       </div>

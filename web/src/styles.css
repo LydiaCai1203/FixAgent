@@ -524,6 +524,11 @@ button {
   background: rgba(44, 198, 168, 0.16);
 }
 
+.brew-pr-run-button:disabled {
+  opacity: 0.72;
+  cursor: wait;
+}
+
 .brew-pr-card .brew-card-header,
 .brew-pr-card .brew-card-meta,
 .brew-pr-card .brew-chip-row,
