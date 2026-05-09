@@ -710,6 +710,15 @@ button {
   white-space: nowrap;
 }
 
+.brew-chip-button {
+  cursor: pointer;
+}
+
+.brew-chip-button:hover {
+  color: var(--text-primary);
+  border-color: rgba(201, 223, 114, 0.18);
+}
+
 .brew-project-card .brew-chip {
   background: rgba(12, 44, 37, 0.66);
 }

@@ -87,6 +87,7 @@ export default function App() {
   const [pendingProjectKeyForPr, setPendingProjectKeyForPr] = useState<string | null>(null);
   const [openProjectMenuKey, setOpenProjectMenuKey] = useState<string | null>(null);
   const [hoveredReviewPrId, setHoveredReviewPrId] = useState<number | null>(null);
+  const [activeMainView, setActiveMainView] = useState<'prPool' | 'bugPool'>('prPool');
   const [workflowRuns, setWorkflowRuns] = useState<WorkflowRunSummary[]>([]);
   const [reviewRunningPrIds, setReviewRunningPrIds] = useState<number[]>([]);
   const [workflowRounds, setWorkflowRounds] = useState<WorkflowRoundSummary[]>([]);
@@ -164,6 +165,7 @@ export default function App() {
       setSelectedPrId(null);
       setWorkflowRuns([]);
       setWorkflowRounds([]);
+      setActiveMainView('prPool');
       return;
     }
 
@@ -616,7 +618,16 @@ export default function App() {
                       </div>
                     <p className="brew-card-meta">{pr.pr_url}</p>
                     <div className="brew-chip-row">
-                      <span className="brew-chip">Bugs {summary.total}</span>
+                      <button
+                        className="brew-chip brew-chip-button"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          setSelectedPrId(pr.id);
+                          setActiveMainView('bugPool');
+                        }}
+                      >
+                        Bugs {summary.total}
+                      </button>
                       <span className="brew-chip">Open {summary.open}</span>
                       <span className="brew-chip">Needs Human {summary.needsHuman}</span>
                       <span className="brew-chip">Resolved {summary.resolved}</span>
@@ -630,12 +641,13 @@ export default function App() {
           </section>
         </section>
 
-        {selectedPr ? (
+        {selectedPr && activeMainView === 'bugPool' ? (
           <section className="brew-panel brew-bug-pool-panel">
             <div className="brew-panel-header">
               <div>
                 <h3>Bug Pool</h3>
               </div>
+              <button className="brew-link-button" onClick={() => setActiveMainView('prPool')}>Back to PR Pool</button>
             </div>
 
             <div className="brew-card-grid brew-bug-card-grid">

@@ -181,3 +181,10 @@ Agent 在任务执行过程中发现的条目应遵循以下格式：
   - `deepseek` 模型应使用官方推荐参数：`temperature=1.0`、`top_p=1.0`。
   - 不要机械沿用 GPT/Kimi 的低 temperature 参数到 `deepseek`。
   - `deepseek` 在 tool call 场景下仍需关闭 `thinking`，避免 `reasoning_content` / `tool choice` 兼容问题。
+
+[提交偏好]
+- Date: 2026-05-09
+- Context: 用户明确要求后续提交行为
+- Instructions:
+  - 当用户说“提交”时，应默认把本次工作区里与当前任务相关的改动一并提交，而不是只提交部分文件。
+  - 仍然应排除明显的本地产物或构建缓存，例如 `node_modules/.vite` 一类自动生成文件。
