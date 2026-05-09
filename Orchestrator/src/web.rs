@@ -16,9 +16,9 @@ pub struct ListPrsQuery {
 
 #[derive(Debug, Deserialize)]
 pub struct ListIssuesQuery {
-    pub project_key: String,
-    pub platform: String,
-    pub pr_number: i64,
+    pub project_key: Option<String>,
+    pub platform: Option<String>,
+    pub pr_number: Option<i64>,
     pub status: Option<String>,
 }
 

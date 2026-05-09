@@ -131,55 +131,55 @@ impl OrchestratorService {
 
     pub async fn list_issues(
         &self,
-        project_key: String,
-        platform: String,
-        pr_number: i64,
+        project_key: Option<String>,
+        platform: Option<String>,
+        pr_number: Option<i64>,
         status: Option<String>,
     ) -> Result<Vec<IssueSummary>> {
-        let rows = if let Some(status) = status {
-            sqlx::query_as::<_, (i64, i64, i64, String, String, i64, i64, String, String, Option<i32>, chrono::DateTime<Utc>, chrono::DateTime<Utc>)>(
-                r#"
-                SELECT i.id, i.pull_request_id, i.review_run_id, i.severity, i.file_path, i.start_line, i.end_line, i.title, i.status, i.confidence, i.created_at, i.updated_at
-                FROM issues i
-                JOIN pull_requests pr ON pr.id = i.pull_request_id
-                JOIN projects p ON p.id = pr.project_id
-                WHERE p.project_key = $1
-                  AND pr.platform = $2
-                  AND pr.pr_number = $3
-                  AND i.status = $4
-                ORDER BY i.updated_at DESC, i.id DESC
-                "#,
-            )
-            .bind(project_key)
-            .bind(platform)
-            .bind(pr_number)
-            .bind(status)
-            .fetch_all(&self.pool)
-            .await?
-        } else {
-            sqlx::query_as::<_, (i64, i64, i64, String, String, i64, i64, String, String, Option<i32>, chrono::DateTime<Utc>, chrono::DateTime<Utc>)>(
-                r#"
-                SELECT i.id, i.pull_request_id, i.review_run_id, i.severity, i.file_path, i.start_line, i.end_line, i.title, i.status, i.confidence, i.created_at, i.updated_at
-                FROM issues i
-                JOIN pull_requests pr ON pr.id = i.pull_request_id
-                JOIN projects p ON p.id = pr.project_id
-                WHERE p.project_key = $1
-                  AND pr.platform = $2
-                  AND pr.pr_number = $3
-                ORDER BY i.updated_at DESC, i.id DESC
-                "#,
-            )
-            .bind(project_key)
-            .bind(platform)
-            .bind(pr_number)
-            .fetch_all(&self.pool)
-            .await?
-        };
+        let rows = sqlx::query_as::<_, (String, String, String, i64, i64, i64, i64, String, String, i64, i64, String, String, Option<i32>, chrono::DateTime<Utc>, chrono::DateTime<Utc>)>(
+            r#"
+            SELECT
+                p.project_key,
+                p.project_name,
+                pr.platform,
+                pr.pr_number,
+                i.id,
+                i.pull_request_id,
+                i.review_run_id,
+                i.severity,
+                i.file_path,
+                i.start_line,
+                i.end_line,
+                i.title,
+                i.status,
+                i.confidence,
+                i.created_at,
+                i.updated_at
+            FROM issues i
+            JOIN pull_requests pr ON pr.id = i.pull_request_id
+            JOIN projects p ON p.id = pr.project_id
+            WHERE ($1::text IS NULL OR p.project_key = $1)
+              AND ($2::text IS NULL OR pr.platform = $2)
+              AND ($3::bigint IS NULL OR pr.pr_number = $3)
+              AND ($4::text IS NULL OR i.status = $4)
+            ORDER BY i.updated_at DESC, i.id DESC
+            "#,
+        )
+        .bind(project_key)
+        .bind(platform)
+        .bind(pr_number)
+        .bind(status)
+        .fetch_all(&self.pool)
+        .await?;
 
         Ok(rows
             .into_iter()
-            .map(|(id, pull_request_id, review_run_id, severity, file_path, start_line, end_line, title, status, confidence, created_at, updated_at)| IssueSummary {
+            .map(|(project_key, project_name, platform, pr_number, id, pull_request_id, review_run_id, severity, file_path, start_line, end_line, title, status, confidence, created_at, updated_at)| IssueSummary {
                 id,
+                project_key,
+                project_name,
+                platform,
+                pr_number,
                 pull_request_id,
                 review_run_id,
                 severity,
