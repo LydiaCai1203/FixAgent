@@ -163,3 +163,12 @@ Agent 在任务执行过程中发现的条目应遵循以下格式：
   - 左侧展开区不需要 `Refresh` 按钮。
   - 顶部不需要 `Project → PRPool`、`Select a project`、`English Mild Ale Palette` 这类无用标题文案。
   - 右上角不需要 `Refresh` 和 `Open PR` 按钮。
+
+[ReviewAgent 并发与 RPM 约束]
+- Date: 2026-05-09
+- Context: Agent 在排查 review bot 失败原因时发现
+- Category: 依赖关系
+- Instructions:
+  - `ReviewOrchestrator` 会对代码分片进行并发审查，默认 `max_concurrent_chunks=3` 时，叠加 explorer 子 agent 与 synthesis 调用，容易超出模型侧 20 RPM 限制。
+  - 当前项目已将默认并发数从 `3` 降为 `1`，优先串行执行 review 分片，避免因速率限制导致所有分片统一失败。
+  - 遇到 `所有分片审查均失败` 时，需要优先检查模型速率限制与分片并发配置，而不只是排查前端或 Orchestrator 展示逻辑。
