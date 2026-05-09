@@ -19,6 +19,9 @@ pub enum FixError {
 
     #[error("LLM error: {0}")]
     Llm(String),
+
+    #[error("Agent error: {0}")]
+    Agent(String),
 }
 
 pub type Result<T> = std::result::Result<T, FixError>;

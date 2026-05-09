@@ -1,4 +1,3 @@
-use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -7,12 +6,14 @@ use std::path::{Path, PathBuf};
 #[serde(default)]
 pub struct FixAgentConfig {
     pub fix: FixConfig,
+    pub agent: AgentConfig,
 }
 
 impl Default for FixAgentConfig {
     fn default() -> Self {
         Self {
             fix: FixConfig::default(),
+            agent: AgentConfig::default(),
         }
     }
 }
@@ -33,8 +34,29 @@ impl Default for FixConfig {
     }
 }
 
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(default)]
+pub struct AgentConfig {
+    /// Enable agent mode with tool calling
+    pub enabled: bool,
+    /// Maximum iterations (LLM round-trips)
+    pub max_iterations: usize,
+    /// Maximum tool calls per session
+    pub max_tool_calls: usize,
+}
+
+impl Default for AgentConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            max_iterations: 20,
+            max_tool_calls: 20,
+        }
+    }
+}
+
 impl FixAgentConfig {
-    pub fn load_or_default(repo_dir: &Path) -> Result<Self> {
+    pub fn load_or_default(repo_dir: &Path) -> anyhow::Result<Self> {
         for candidate in [".fixagent.toml", "fixagent.toml"] {
             let path = repo_dir.join(candidate);
             if path.exists() {
@@ -44,15 +66,16 @@ impl FixAgentConfig {
         Ok(Self::default())
     }
 
-    pub fn load(path: &PathBuf) -> Result<Self> {
+    pub fn load(path: &PathBuf) -> anyhow::Result<Self> {
         let content = fs::read_to_string(path)
-            .with_context(|| format!("Failed to read config file: {}", path.display()))?;
-        toml::from_str(&content)
-            .with_context(|| format!("Failed to parse config file: {}", path.display()))
+            .map_err(|e| anyhow::anyhow!("Failed to read config file: {} - {}", path.display(), e))?;
+        let config: FixAgentConfig = toml::from_str(&content)
+            .map_err(|e| anyhow::anyhow!("Failed to parse config file: {} - {}", path.display(), e))?;
+        Ok(config)
     }
 }
 
-pub fn load_reviewagent_config(repo_dir: &Path) -> Result<reviewagent::config::Config> {
+pub fn load_reviewagent_config(repo_dir: &Path) -> anyhow::Result<reviewagent::config::Config> {
     for candidate in [".reviewagent.toml", "reviewagent.toml"] {
         let path = repo_dir.join(candidate);
         if path.exists() {
@@ -66,14 +89,14 @@ pub fn load_reviewagent_config(repo_dir: &Path) -> Result<reviewagent::config::C
     Ok(config)
 }
 
-fn apply_workspace_env_overrides(repo_dir: &Path, config: &mut reviewagent::config::Config) -> Result<()> {
+fn apply_workspace_env_overrides(repo_dir: &Path, config: &mut reviewagent::config::Config) -> anyhow::Result<()> {
     let env_path = repo_dir.join("env");
     if !env_path.exists() {
         return Ok(());
     }
 
     let content = fs::read_to_string(&env_path)
-        .with_context(|| format!("Failed to read env file: {}", env_path.display()))?;
+        .map_err(|e| anyhow::anyhow!("Failed to read env file: {} - {}", env_path.display(), e))?;
 
     for raw_line in content.lines() {
         let line = raw_line.trim();
