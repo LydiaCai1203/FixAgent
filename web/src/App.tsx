@@ -87,7 +87,7 @@ export default function App() {
   const [pendingProjectKeyForPr, setPendingProjectKeyForPr] = useState<string | null>(null);
   const [openProjectMenuKey, setOpenProjectMenuKey] = useState<string | null>(null);
   const [hoveredReviewPrId, setHoveredReviewPrId] = useState<number | null>(null);
-  const [activeMainView, setActiveMainView] = useState<'prPool' | 'bugPool'>('prPool');
+
   const [workflowRuns, setWorkflowRuns] = useState<WorkflowRunSummary[]>([]);
   const [reviewRunningPrIds, setReviewRunningPrIds] = useState<number[]>([]);
   const [workflowRounds, setWorkflowRounds] = useState<WorkflowRoundSummary[]>([]);
@@ -165,7 +165,6 @@ export default function App() {
       setSelectedPrId(null);
       setWorkflowRuns([]);
       setWorkflowRounds([]);
-      setActiveMainView('prPool');
       return;
     }
 
@@ -542,7 +541,7 @@ export default function App() {
           </div>
         </section>
 
-        <section className="brew-prpool-layout">
+        <section className="brew-board-grid brew-prpool-layout">
           <section className="brew-panel brew-prpool-panel">
             <div className="brew-panel-header">
               <div>
@@ -618,16 +617,7 @@ export default function App() {
                       </div>
                     <p className="brew-card-meta">{pr.pr_url}</p>
                     <div className="brew-chip-row">
-                      <button
-                        className="brew-chip brew-chip-button"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          setSelectedPrId(pr.id);
-                          setActiveMainView('bugPool');
-                        }}
-                      >
-                        Bugs {summary.total}
-                      </button>
+                      <span className="brew-chip">Bugs {summary.total}</span>
                       <span className="brew-chip">Open {summary.open}</span>
                       <span className="brew-chip">Needs Human {summary.needsHuman}</span>
                       <span className="brew-chip">Resolved {summary.resolved}</span>
@@ -639,39 +629,38 @@ export default function App() {
               {prs.length === 0 && !isLoadingPrs ? <div className="brew-empty-block">This project has no PR cards yet.</div> : null}
             </div>
           </section>
-        </section>
 
-        {selectedPr && activeMainView === 'bugPool' ? (
-          <section className="brew-panel brew-bug-pool-panel">
-            <div className="brew-panel-header">
-              <div>
-                <h3>Bug Pool</h3>
+          {selectedPr ? (
+            <section className="brew-panel brew-bug-pool-panel">
+              <div className="brew-panel-header">
+                <div>
+                  <h3>Bug Pool</h3>
+                </div>
               </div>
-              <button className="brew-link-button" onClick={() => setActiveMainView('prPool')}>Back to PR Pool</button>
-            </div>
 
-            <div className="brew-card-grid brew-bug-card-grid">
-              {projectIssues.map((issue) => (
-                <article key={issue.id} className="brew-card brew-bug-card">
-                  <div className="brew-card-header">
-                    <div>
-                      <div className="brew-card-kicker">{issue.severity}</div>
-                      <strong>{issue.title}</strong>
+              <div className="brew-card-grid brew-bug-card-grid">
+                {projectIssues.map((issue) => (
+                  <article key={issue.id} className="brew-card brew-bug-card">
+                    <div className="brew-card-header">
+                      <div>
+                        <div className="brew-card-kicker">{issue.severity}</div>
+                        <strong>{issue.title}</strong>
+                      </div>
+                      <span className="brew-chip">{issue.status}</span>
                     </div>
-                    <span className="brew-chip">{issue.status}</span>
-                  </div>
-                  <p className="brew-card-meta">{issue.file_path}:{issue.start_line}-{issue.end_line}</p>
-                  <div className="brew-chip-row">
-                    <span className="brew-chip">PR #{issue.pr_number}</span>
-                    <span className="brew-chip">Confidence {issue.confidence ?? '-'}</span>
-                  </div>
-                  <div className="brew-card-footer">Updated {formatDateTime(issue.updated_at)}</div>
-                </article>
-              ))}
-              {projectIssues.length === 0 ? <div className="brew-empty-block">This PR has no bugs in pool.</div> : null}
-            </div>
-          </section>
-        ) : null}
+                    <p className="brew-card-meta">{issue.file_path}:{issue.start_line}-{issue.end_line}</p>
+                    <div className="brew-chip-row">
+                      <span className="brew-chip">PR #{issue.pr_number}</span>
+                      <span className="brew-chip">Confidence {issue.confidence ?? '-'}</span>
+                    </div>
+                    <div className="brew-card-footer">Updated {formatDateTime(issue.updated_at)}</div>
+                  </article>
+                ))}
+                {projectIssues.length === 0 ? <div className="brew-empty-block">This PR has no bugs in pool.</div> : null}
+              </div>
+            </section>
+          ) : null}
+        </section>
 
         {error ? <div className="brew-error-bar">{error}</div> : null}
       </main>
