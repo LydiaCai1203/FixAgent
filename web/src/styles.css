@@ -478,7 +478,7 @@ button {
 .brew-pr-card {
   background: linear-gradient(180deg, rgba(22, 71, 60, 0.9), rgba(16, 56, 47, 0.96));
   position: relative;
-  overflow: hidden;
+  overflow: visible;
   min-height: 182px;
 }
 
@@ -543,6 +543,7 @@ button {
   display: flex;
   align-items: center;
   gap: 8px;
+  position: relative;
 }
 
 .brew-pr-run-button {
@@ -576,6 +577,45 @@ button {
   border: 2px solid rgba(255, 255, 255, 0.22);
   border-top-color: var(--text-primary);
   animation: brew-spin 0.8s linear infinite;
+}
+
+.brew-review-popover {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  transform: translateX(-12px);
+  width: 320px;
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(201, 223, 114, 0.12);
+  background: rgba(12, 44, 37, 0.98);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.34);
+  display: grid;
+  gap: 8px;
+  z-index: 20;
+}
+
+.brew-review-popover-line {
+  color: var(--text-subtle);
+  font-size: 12px;
+  line-height: 1.5;
+  word-break: break-word;
+}
+
+.brew-review-popover-line strong {
+  color: var(--text-primary);
+  font-size: 12px;
+}
+
+.brew-review-popover-rounds {
+  display: grid;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.brew-review-popover-round {
+  padding-top: 8px;
+  border-top: 1px solid rgba(201, 223, 114, 0.08);
 }
 
 @keyframes brew-spin {

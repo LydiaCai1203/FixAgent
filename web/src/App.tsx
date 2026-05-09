@@ -86,6 +86,7 @@ export default function App() {
   const [newPrUrl, setNewPrUrl] = useState('');
   const [pendingProjectKeyForPr, setPendingProjectKeyForPr] = useState<string | null>(null);
   const [openProjectMenuKey, setOpenProjectMenuKey] = useState<string | null>(null);
+  const [hoveredReviewPrId, setHoveredReviewPrId] = useState<number | null>(null);
   const [workflowRuns, setWorkflowRuns] = useState<WorkflowRunSummary[]>([]);
   const [reviewRunningPrIds, setReviewRunningPrIds] = useState<number[]>([]);
   const [workflowRounds, setWorkflowRounds] = useState<WorkflowRoundSummary[]>([]);
@@ -426,29 +427,15 @@ export default function App() {
     return workflowRuns.find((item) => item.platform === pr.platform && item.pr_number === pr.pr_number) ?? null;
   }
 
-  function reviewTooltipForPr(pr: PullRequestSummary) {
-    if (pendingReviewPrIds.includes(pr.id)) {
-      return 'Review task is being submitted...';
-    }
-
+  function reviewDetailsForPr(pr: PullRequestSummary) {
     const workflow = workflowStatusForPr(pr);
-    if (!workflow) {
-      return 'Run review';
-    }
+    const relatedRounds = workflow ? workflowRounds.filter((round) => round.workflow_run_id === workflow.id) : [];
 
-    const relatedRounds = workflowRounds.filter((round) => round.workflow_run_id === workflow.id);
-    const roundLines = relatedRounds.map((round) => {
-      const timing = round.completed_at ? `Completed ${formatDateTime(round.completed_at)}` : 'Running';
-      return `Round ${round.round_number}: ${round.status} | ${round.summary ?? 'No round summary yet.'} | ${timing}`;
-    });
-
-    return [
-      `Status: ${workflow.status}`,
-      `Started: ${formatDateTime(workflow.started_at)}`,
-      workflow.completed_at ? `Completed: ${formatDateTime(workflow.completed_at)}` : 'Completed: Running',
-      `Summary: ${workflow.summary ?? 'No workflow summary yet.'}`,
-      ...roundLines,
-    ].join('\n');
+    return {
+      workflow,
+      relatedRounds,
+      isPendingSubmission: pendingReviewPrIds.includes(pr.id),
+    };
   }
 
   return (
@@ -564,7 +551,7 @@ export default function App() {
             <div className="brew-card-grid brew-pr-card-grid">
               {prs.map((pr) => {
                 const summary = prIssueSummaryMap.get(pr.pr_number) ?? { total: 0, open: 0, needsHuman: 0, resolved: 0 };
-                const workflow = workflowStatusForPr(pr);
+                const { workflow, relatedRounds, isPendingSubmission } = reviewDetailsForPr(pr);
                 const isReviewBusy = pendingReviewPrIds.includes(pr.id) || reviewRunningPrIds.includes(pr.id);
                 return (
                   <div
@@ -585,18 +572,46 @@ export default function App() {
                           <div className="brew-card-kicker">{pr.platform}</div>
                           <strong>PR #{pr.pr_number}</strong>
                         </div>
-                        <div className="brew-pr-card-actions">
+                        <div
+                          className="brew-pr-card-actions"
+                          onMouseEnter={() => setHoveredReviewPrId(pr.id)}
+                          onMouseLeave={() => setHoveredReviewPrId((current) => current === pr.id ? null : current)}
+                        >
                           <button
                             className="brew-pr-run-button"
                             onClick={(event) => {
                               event.stopPropagation();
                               void handleRunReview(pr);
                             }}
-                            title={reviewTooltipForPr(pr)}
                             disabled={isReviewBusy}
                           >
                             {isReviewBusy ? <span className="brew-pr-run-spinner" aria-hidden="true" /> : 'R'}
                           </button>
+                          {hoveredReviewPrId === pr.id ? (
+                            <div className="brew-review-popover">
+                              {isPendingSubmission ? <div className="brew-review-popover-line">Submitting review task...</div> : null}
+                              {!workflow && !isPendingSubmission ? <div className="brew-review-popover-line">No review task has started yet.</div> : null}
+                              {workflow ? (
+                                <>
+                                  <div className="brew-review-popover-line"><strong>Status:</strong> {workflow.status}</div>
+                                  <div className="brew-review-popover-line"><strong>Started:</strong> {formatDateTime(workflow.started_at)}</div>
+                                  <div className="brew-review-popover-line"><strong>Completed:</strong> {workflow.completed_at ? formatDateTime(workflow.completed_at) : 'Running'}</div>
+                                  <div className="brew-review-popover-line"><strong>Summary:</strong> {workflow.summary ?? 'No workflow summary yet.'}</div>
+                                  {relatedRounds.length > 0 ? (
+                                    <div className="brew-review-popover-rounds">
+                                      {relatedRounds.map((round) => (
+                                        <div key={round.id} className="brew-review-popover-round">
+                                          <div className="brew-review-popover-line"><strong>Round {round.round_number}</strong> {round.status}</div>
+                                          <div className="brew-review-popover-line">{round.summary ?? 'No round summary yet.'}</div>
+                                          <div className="brew-review-popover-line">{round.completed_at ? `Completed ${formatDateTime(round.completed_at)}` : 'Running'}</div>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  ) : null}
+                                </>
+                              ) : null}
+                            </div>
+                          ) : null}
                         </div>
                       </div>
                     <p className="brew-card-meta">{pr.pr_url}</p>
