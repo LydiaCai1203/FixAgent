@@ -172,3 +172,12 @@ Agent 在任务执行过程中发现的条目应遵循以下格式：
   - `ReviewOrchestrator` 会对代码分片进行并发审查，默认 `max_concurrent_chunks=3` 时，叠加 explorer 子 agent 与 synthesis 调用，容易超出模型侧 20 RPM 限制。
   - 当前项目已将默认并发数从 `3` 降为 `1`，优先串行执行 review 分片，避免因速率限制导致所有分片统一失败。
   - 遇到 `所有分片审查均失败` 时，需要优先检查模型速率限制与分片并发配置，而不只是排查前端或 Orchestrator 展示逻辑。
+
+[DeepSeek 参数约束]
+- Date: 2026-05-09
+- Context: 用户提供 DeepSeek 官方推荐参数并要求按模型特性适配
+- Category: 依赖关系
+- Instructions:
+  - `deepseek` 模型应使用官方推荐参数：`temperature=1.0`、`top_p=1.0`。
+  - 不要机械沿用 GPT/Kimi 的低 temperature 参数到 `deepseek`。
+  - `deepseek` 在 tool call 场景下仍需关闭 `thinking`，避免 `reasoning_content` / `tool choice` 兼容问题。
