@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import DiffMatchPatch from 'diff-match-patch';
 
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || `${window.location.origin}/api`).replace(/\/$/, '');
 
@@ -37,6 +38,7 @@ type IssueSummary = {
   description: string;
   suggestion: string;
   suggestion_code: string | null;
+  original_code: string | null;
   status: string;
   confidence: number | null;
   created_at: string;
@@ -826,7 +828,7 @@ export default function App() {
               <div className="brew-issue-block-content">{selectedIssue.suggestion}</div>
             </div>
 
-            {/* Suggested Code */}
+            {/* Suggested Code Diff */}
             {selectedIssue.suggestion_code ? (
               <div className="brew-issue-block">
                 <div className="brew-issue-block-title">
@@ -834,9 +836,13 @@ export default function App() {
                     <polyline points="16 18 22 12 16 6"></polyline>
                     <polyline points="8 6 2 12 8 18"></polyline>
                   </svg>
-                  Suggested Code
+                  Suggested Fix
                 </div>
-                <pre className="brew-issue-code-block"><code>{selectedIssue.suggestion_code}</code></pre>
+                <CodeDiffViewer
+                  oldCode={selectedIssue.original_code || ''}
+                  newCode={selectedIssue.suggestion_code}
+                  startLine={selectedIssue.start_line}
+                />
               </div>
             ) : null}
 
@@ -906,4 +912,97 @@ function toErrorMessage(error: unknown) {
     return error.message;
   }
   return 'Unknown error';
+}
+
+// ---------------------------------------------------------------------------
+// Code Diff Viewer Component
+// ---------------------------------------------------------------------------
+
+function CodeDiffViewer({
+  oldCode,
+  newCode,
+  startLine = 1,
+}: {
+  oldCode: string;
+  newCode: string;
+  startLine?: number;
+}) {
+  const dmp = new DiffMatchPatch();
+
+  const diffLines = useMemo(() => {
+    const diffs = dmp.diff_main(oldCode, newCode);
+    dmp.diff_cleanupSemantic(diffs);
+
+    const result: Array<{
+      type: 'equal' | 'insert' | 'delete';
+      oldLineNum: number | null;
+      newLineNum: number | null;
+      text: string;
+    }> = [];
+
+    let oldLineNum = startLine;
+    let newLineNum = startLine;
+
+    for (const [op, text] of diffs) {
+      const lines = text.split('\n');
+      // diff-match-patch does not include trailing newline in the chunk,
+      // so if text ends with newline the last element after split is ''.
+      const hasTrailingNewline = text.endsWith('\n');
+      const lineCount = hasTrailingNewline ? lines.length - 1 : lines.length;
+
+      for (let i = 0; i < lineCount; i++) {
+        const lineText = lines[i];
+        if (op === 0) {
+          // equal
+          result.push({
+            type: 'equal',
+            oldLineNum,
+            newLineNum,
+            text: lineText,
+          });
+          oldLineNum++;
+          newLineNum++;
+        } else if (op === -1) {
+          // delete
+          result.push({
+            type: 'delete',
+            oldLineNum,
+            newLineNum: null,
+            text: lineText,
+          });
+          oldLineNum++;
+        } else if (op === 1) {
+          // insert
+          result.push({
+            type: 'insert',
+            oldLineNum: null,
+            newLineNum,
+            text: lineText,
+          });
+          newLineNum++;
+        }
+      }
+    }
+
+    return result;
+  }, [oldCode, newCode, startLine]);
+
+  return (
+    <div className="diff-viewer">
+      {diffLines.map((line, idx) => (
+        <div key={idx} className={`diff-line diff-${line.type}`}>
+          <span className="diff-gutter diff-gutter-old">
+            {line.oldLineNum ?? ''}
+          </span>
+          <span className="diff-gutter diff-gutter-new">
+            {line.newLineNum ?? ''}
+          </span>
+          <span className="diff-marker">
+            {line.type === 'equal' ? ' ' : line.type === 'insert' ? '+' : '-'}
+          </span>
+          <span className="diff-content">{line.text}</span>
+        </div>
+      ))}
+    </div>
+  );
 }

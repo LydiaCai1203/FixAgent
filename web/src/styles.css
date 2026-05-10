@@ -1257,3 +1257,85 @@ button {
   color: var(--text-muted);
   font-size: 11px;
 }
+
+/* ---------------------------------------------------------------------------
+   Diff Viewer
+   --------------------------------------------------------------------------- */
+
+.diff-viewer {
+  font-family: 'JetBrains Mono', 'Fira Code', 'SF Mono', Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.6;
+  border-radius: 12px;
+  background: rgba(6, 22, 18, 0.95);
+  border: 1px solid rgba(201, 223, 114, 0.1);
+  overflow-x: auto;
+}
+
+.diff-line {
+  display: flex;
+  white-space: pre;
+}
+
+.diff-gutter {
+  flex-shrink: 0;
+  width: 40px;
+  text-align: right;
+  padding: 0 8px;
+  color: var(--text-muted);
+  user-select: none;
+  opacity: 0.6;
+}
+
+.diff-gutter-old {
+  border-right: 1px solid rgba(201, 223, 114, 0.06);
+}
+
+.diff-gutter-new {
+  border-right: 1px solid rgba(201, 223, 114, 0.06);
+}
+
+.diff-marker {
+  flex-shrink: 0;
+  width: 20px;
+  text-align: center;
+  user-select: none;
+  color: var(--text-muted);
+  opacity: 0.8;
+}
+
+.diff-content {
+  padding-left: 8px;
+  padding-right: 16px;
+  color: #c5e8d5;
+}
+
+.diff-equal {
+  background: transparent;
+}
+
+.diff-insert {
+  background: rgba(44, 198, 168, 0.08);
+}
+
+.diff-insert .diff-marker {
+  color: #2cc6a8;
+  opacity: 1;
+}
+
+.diff-insert .diff-content {
+  color: #a8f0d8;
+}
+
+.diff-delete {
+  background: rgba(230, 100, 100, 0.08);
+}
+
+.diff-delete .diff-marker {
+  color: #e66464;
+  opacity: 1;
+}
+
+.diff-delete .diff-content {
+  color: #f0a8a8;
+}
