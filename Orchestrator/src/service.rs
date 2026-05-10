@@ -343,14 +343,14 @@ impl OrchestratorService {
         pr_number: Option<i64>,
         status: Option<String>,
     ) -> Result<Vec<IssueSummary>> {
-        let rows = sqlx::query_as::<_, (String, String, String, i64, i64, i64, i64, String, String, i64, i64, String, String, String, Option<String>, Option<i32>, chrono::DateTime<Utc>, chrono::DateTime<Utc>)>(
+        let rows = sqlx::query_as::<_, IssueSummary>(
             r#"
             SELECT
+                i.id,
                 p.project_key,
                 p.project_name,
                 pr.platform,
                 pr.pr_number,
-                i.id,
                 i.pull_request_id,
                 i.review_run_id,
                 i.severity,
@@ -382,30 +382,7 @@ impl OrchestratorService {
         .fetch_all(&self.pool)
         .await?;
 
-        Ok(rows
-            .into_iter()
-            .map(|(project_key, project_name, platform, pr_number, id, pull_request_id, review_run_id, severity, file_path, start_line, end_line, title, description, suggestion, suggestion_code, status, confidence, created_at, updated_at)| IssueSummary {
-                id,
-                project_key,
-                project_name,
-                platform,
-                pr_number,
-                pull_request_id,
-                review_run_id,
-                severity,
-                file_path,
-                start_line,
-                end_line,
-                title,
-                description,
-                suggestion,
-                suggestion_code,
-                status,
-                confidence,
-                created_at,
-                updated_at,
-            })
-            .collect())
+        Ok(rows)
     }
 
     pub async fn update_issue_status(
@@ -421,7 +398,7 @@ impl OrchestratorService {
             )));
         }
 
-        let row = sqlx::query_as::<_, (String, String, String, i64, i64, i64, i64, String, String, i64, i64, String, String, String, Option<String>, Option<i32>, chrono::DateTime<Utc>, chrono::DateTime<Utc>)>(
+        let row = sqlx::query_as::<_, IssueSummary>(
             r#"
             UPDATE issues i
             SET status = $1,
@@ -431,11 +408,11 @@ impl OrchestratorService {
               AND pr.id = i.pull_request_id
               AND p.id = pr.project_id
             RETURNING
+                i.id,
                 p.project_key,
                 p.project_name,
                 pr.platform,
                 pr.pr_number,
-                i.id,
                 i.pull_request_id,
                 i.review_run_id,
                 i.severity,
@@ -458,27 +435,7 @@ impl OrchestratorService {
         .await?
         .ok_or_else(|| OrchestratorError::Config(format!("Issue not found: {}", issue_id)))?;
 
-        Ok(IssueSummary {
-            id: row.4,
-            project_key: row.0,
-            project_name: row.1,
-            platform: row.2,
-            pr_number: row.3,
-            pull_request_id: row.5,
-            review_run_id: row.6,
-            severity: row.7,
-            file_path: row.8,
-            start_line: row.9,
-            end_line: row.10,
-            title: row.11,
-            description: row.12,
-            suggestion: row.13,
-            suggestion_code: row.14,
-            status: row.15,
-            confidence: row.16,
-            created_at: row.17,
-            updated_at: row.18,
-        })
+        Ok(row)
     }
 
     pub async fn list_workflows(

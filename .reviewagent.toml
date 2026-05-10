@@ -1,0 +1,11 @@
+[llm]
+provider = "openai"
+model = "deepseek-v4-pro"
+base_url = "https://api.deepseek.com/v1"
+api_key = "sk-5aa94dccbc644fa0b8f7cd804ea260ac"
+
+[llm_lite]
+provider = "openai"
+model = "deepseek-v4-pro"
+base_url = "https://api.deepseek.com/v1"
+api_key = "sk-5aa94dccbc644fa0b8f7cd804ea260ac"

@@ -1,0 +1,26 @@
+# Build artifacts
+Orchestrator/target/
+FixAgent/target/
+ReviewAgent/target/
+web/node_modules/
+web/dist/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Git
+.git/
+.gitmodules
+
+# Docker
+docker-compose.yml
+Dockerfile
+
+# Misc
+*.log
+tmp/
