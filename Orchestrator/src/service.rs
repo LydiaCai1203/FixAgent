@@ -361,6 +361,7 @@ impl OrchestratorService {
                 i.description,
                 i.suggestion,
                 i.suggestion_code,
+                i.original_code,
                 i.status,
                 i.confidence,
                 i.created_at,
@@ -423,6 +424,7 @@ impl OrchestratorService {
                 i.description,
                 i.suggestion,
                 i.suggestion_code,
+                i.original_code,
                 i.status,
                 i.confidence,
                 i.created_at,
@@ -1285,10 +1287,11 @@ impl OrchestratorService {
                     description,
                     suggestion,
                     suggestion_code,
+                    original_code,
                     confidence,
                     status,
                     source_bot
-                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'open', 'reviewagent')
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, 'open', 'reviewagent')
                 ON CONFLICT (pull_request_id, fingerprint)
                 DO UPDATE SET
                     review_run_id = EXCLUDED.review_run_id,
@@ -1300,6 +1303,7 @@ impl OrchestratorService {
                     description = EXCLUDED.description,
                     suggestion = EXCLUDED.suggestion,
                     suggestion_code = EXCLUDED.suggestion_code,
+                    original_code = EXCLUDED.original_code,
                     confidence = EXCLUDED.confidence,
                     updated_at = NOW()
                 "#,
@@ -1315,6 +1319,7 @@ impl OrchestratorService {
             .bind(&issue.description)
             .bind(&issue.suggestion)
             .bind(&issue.suggestion_code)
+            .bind(&issue.original_code)
             .bind(issue.confidence.map(|v| v as i32))
             .execute(&mut *tx)
             .await?;
@@ -1369,7 +1374,7 @@ impl OrchestratorService {
                 LIMIT 1
                 FOR UPDATE SKIP LOCKED
             )
-            RETURNING i.id, i.pull_request_id, i.severity, i.file_path, i.start_line, i.end_line, i.title, i.description, i.suggestion, i.suggestion_code, i.confidence
+            RETURNING i.id, i.pull_request_id, i.severity, i.file_path, i.start_line, i.end_line, i.title, i.description, i.suggestion, i.suggestion_code, i.original_code, i.confidence
             "#,
         )
         .bind(&claimed_by)
@@ -1379,7 +1384,7 @@ impl OrchestratorService {
         .fetch_optional(&mut *tx)
         .await?;
 
-        let (issue_id, pull_request_id, severity, file_path, start_line, end_line, title, description, suggestion, suggestion_code, confidence) =
+        let (issue_id, pull_request_id, severity, file_path, start_line, end_line, title, description, suggestion, suggestion_code, original_code, confidence) =
             row.ok_or_else(|| OrchestratorError::Config("No open issue found for the specified PR/MR".to_string()))?;
 
         tx.commit().await?;
@@ -1400,6 +1405,7 @@ impl OrchestratorService {
                 description,
                 suggestion,
                 suggestion_code,
+                original_code,
                 confidence: confidence.map(|v| v as u8),
             },
         };

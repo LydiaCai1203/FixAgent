@@ -22,5 +22,14 @@ async fn run_migrations(pool: &PgPool) -> Result<(), sqlx::Error> {
     .execute(pool)
     .await?;
 
+    sqlx::query(
+        r#"
+        ALTER TABLE IF EXISTS issues
+        ADD COLUMN IF NOT EXISTS original_code TEXT
+        "#,
+    )
+    .execute(pool)
+    .await?;
+
     Ok(())
 }

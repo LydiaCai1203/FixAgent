@@ -78,6 +78,7 @@ pub struct IssueSummary {
     pub description: String,
     pub suggestion: String,
     pub suggestion_code: Option<String>,
+    pub original_code: Option<String>,
     pub status: String,
     pub confidence: Option<i32>,
     pub created_at: DateTime<Utc>,
