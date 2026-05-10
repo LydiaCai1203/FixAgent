@@ -1808,6 +1808,7 @@ fn map_fix_status(status: &FixExecutionStatus) -> &'static str {
         FixExecutionStatus::Suggested => "suggested",
         FixExecutionStatus::NeedsHuman => "needs_human",
         FixExecutionStatus::InvalidCandidate => "invalid_candidate",
+        FixExecutionStatus::NotReproducible => "not_reproducible",
     }
 }
 
@@ -1817,6 +1818,7 @@ fn map_issue_status(status: &FixExecutionStatus) -> &'static str {
         FixExecutionStatus::Suggested => "fixed_pending_verification",
         FixExecutionStatus::NeedsHuman => "needs_human",
         FixExecutionStatus::InvalidCandidate => "invalid",
+        FixExecutionStatus::NotReproducible => "not_reproducible",
     }
 }
 
