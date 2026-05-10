@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import DiffMatchPatch from 'diff-match-patch';
 
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || `${window.location.origin}/api`).replace(/\/$/, '');
 
@@ -34,6 +35,10 @@ type IssueSummary = {
   start_line: number;
   end_line: number;
   title: string;
+  description: string;
+  suggestion: string;
+  suggestion_code: string | null;
+  original_code: string | null;
   status: string;
   confidence: number | null;
   created_at: string;
@@ -87,6 +92,8 @@ export default function App() {
   const [pendingProjectKeyForPr, setPendingProjectKeyForPr] = useState<string | null>(null);
   const [openProjectMenuKey, setOpenProjectMenuKey] = useState<string | null>(null);
   const [hoveredReviewPrId, setHoveredReviewPrId] = useState<number | null>(null);
+  const [selectedIssueId, setSelectedIssueId] = useState<number | null>(null);
+  const [openIssueMenuId, setOpenIssueMenuId] = useState<number | null>(null);
 
   const [workflowRuns, setWorkflowRuns] = useState<WorkflowRunSummary[]>([]);
   const [reviewRunningPrIds, setReviewRunningPrIds] = useState<number[]>([]);
@@ -101,6 +108,11 @@ export default function App() {
   const selectedPr = useMemo(
     () => prs.find((pr) => pr.id === selectedPrId) ?? null,
     [prs, selectedPrId],
+  );
+
+  const selectedIssue = useMemo(
+    () => projectIssues.find((issue) => issue.id === selectedIssueId) ?? null,
+    [projectIssues, selectedIssueId],
   );
 
   const prIdentityById = useMemo(() => {
@@ -424,6 +436,23 @@ export default function App() {
     }
   }
 
+  async function handleUpdateIssueStatus(issueId: number, newStatus: string) {
+    setError(null);
+    try {
+      const response = await fetch(`${API_BASE_URL}/issues/${issueId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: newStatus }),
+      });
+      if (!response.ok) {
+        throw new Error(await readApiError(response));
+      }
+      await loadProjectIssues(selectedProjectKey ?? '', selectedPr);
+    } catch (err) {
+      setError(toErrorMessage(err));
+    }
+  }
+
   function workflowStatusForPr(pr: PullRequestSummary) {
     return workflowRuns.find((item) => item.platform === pr.platform && item.pr_number === pr.pr_number) ?? null;
   }
@@ -640,14 +669,56 @@ export default function App() {
 
               <div className="brew-card-grid brew-bug-card-grid">
                 {projectIssues.map((issue) => (
-                  <article key={issue.id} className="brew-card brew-bug-card">
-                    <div className="brew-card-header">
-                      <div>
-                        <div className="brew-card-kicker">{issue.severity}</div>
-                        <strong>{issue.title}</strong>
-                      </div>
-                      <span className="brew-chip">{issue.status}</span>
-                    </div>
+                  <article
+                    key={issue.id}
+                    className="brew-card brew-bug-card"
+                    onClick={() => setSelectedIssueId(issue.id)}
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault();
+                        setSelectedIssueId(issue.id);
+                      }
+                    }}
+                  >
+                     <div className="brew-card-header">
+                       <div>
+                         <div className="brew-card-kicker">{issue.severity}</div>
+                         <strong>{issue.title}</strong>
+                       </div>
+                       <div className="brew-issue-menu-wrap">
+                         <button
+                           className={`brew-status-dropdown brew-status-${issue.status}`}
+                           onClick={(event) => {
+                             event.stopPropagation();
+                             setOpenIssueMenuId((current) => current === issue.id ? null : issue.id);
+                           }}
+                         >
+                           {issue.status}
+                           <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                             <polyline points="6 9 12 15 18 9"></polyline>
+                           </svg>
+                         </button>
+                         {openIssueMenuId === issue.id ? (
+                           <div className="brew-issue-menu">
+                             {['open', 'resolved', 'needs_human', 'invalid'].map((statusOption) => (
+                               <button
+                                 key={statusOption}
+                                 className="brew-issue-menu-item"
+                                 onClick={(event) => {
+                                   event.stopPropagation();
+                                   void handleUpdateIssueStatus(issue.id, statusOption);
+                                   setOpenIssueMenuId(null);
+                                 }}
+                               >
+                                 {statusOption}
+                               </button>
+                             ))}
+                           </div>
+                         ) : null}
+                       </div>
+                     </div>
                     <p className="brew-card-meta">{issue.file_path}:{issue.start_line}-{issue.end_line}</p>
                     <div className="brew-chip-row">
                       <span className="brew-chip">PR #{issue.pr_number}</span>
@@ -700,6 +771,89 @@ export default function App() {
             <div className="brew-modal-actions">
               <button className="brew-btn-secondary" onClick={() => setShowCreatePr(false)}>取消</button>
               <button className="brew-btn-primary" onClick={() => void handleCreatePr()}>确定</button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {selectedIssue ? (
+        <div className="brew-modal-overlay" onClick={() => setSelectedIssueId(null)}>
+          <div className="brew-modal brew-modal-wide" onClick={(e) => e.stopPropagation()}>
+            {/* Header */}
+            <div className="brew-issue-header">
+              <div className="brew-issue-header-title">
+                <span className={`brew-issue-severity brew-issue-severity-${selectedIssue.severity}`}>{selectedIssue.severity}</span>
+                <h3>{selectedIssue.title}</h3>
+              </div>
+              <div className="brew-issue-header-meta">
+                <span className={`brew-status-pill brew-status-${selectedIssue.status}`}>{selectedIssue.status}</span>
+                {selectedIssue.confidence !== null ? (
+                  <span className="brew-issue-confidence">Confidence {selectedIssue.confidence}%</span>
+                ) : null}
+              </div>
+            </div>
+
+            {/* Location */}
+            <div className="brew-issue-location">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path>
+                <polyline points="13 2 13 9 20 9"></polyline>
+              </svg>
+              <code>{selectedIssue.file_path}</code>
+              <span className="brew-issue-line">Line {selectedIssue.start_line}{selectedIssue.end_line !== selectedIssue.start_line ? ` - ${selectedIssue.end_line}` : ''}</span>
+            </div>
+
+            {/* Description */}
+            <div className="brew-issue-block">
+              <div className="brew-issue-block-title">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="12" cy="12" r="10"></circle>
+                  <line x1="12" y1="16" x2="12" y2="12"></line>
+                  <line x1="12" y1="8" x2="12.01" y2="8"></line>
+                </svg>
+                Description
+              </div>
+              <div className="brew-issue-block-content">{selectedIssue.description}</div>
+            </div>
+
+            {/* Suggestion */}
+            <div className="brew-issue-block">
+              <div className="brew-issue-block-title">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M12 20h9"></path>
+                  <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path>
+                </svg>
+                Suggestion
+              </div>
+              <div className="brew-issue-block-content">{selectedIssue.suggestion}</div>
+            </div>
+
+            {/* Suggested Code Diff */}
+            {selectedIssue.suggestion_code ? (
+              <div className="brew-issue-block">
+                <div className="brew-issue-block-title">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="16 18 22 12 16 6"></polyline>
+                    <polyline points="8 6 2 12 8 18"></polyline>
+                  </svg>
+                  Suggested Fix
+                </div>
+                <CodeDiffViewer
+                  oldCode={selectedIssue.original_code || ''}
+                  newCode={selectedIssue.suggestion_code}
+                  startLine={selectedIssue.start_line}
+                />
+              </div>
+            ) : null}
+
+            {/* Footer */}
+            <div className="brew-issue-footer">
+              <span>PR #{selectedIssue.pr_number} · {selectedIssue.platform}</span>
+              <span>Updated {formatDateTime(selectedIssue.updated_at)}</span>
+            </div>
+
+            <div className="brew-modal-actions">
+              <button className="brew-btn-secondary" onClick={() => setSelectedIssueId(null)}>关闭</button>
             </div>
           </div>
         </div>
@@ -758,4 +912,97 @@ function toErrorMessage(error: unknown) {
     return error.message;
   }
   return 'Unknown error';
+}
+
+// ---------------------------------------------------------------------------
+// Code Diff Viewer Component
+// ---------------------------------------------------------------------------
+
+function CodeDiffViewer({
+  oldCode,
+  newCode,
+  startLine = 1,
+}: {
+  oldCode: string;
+  newCode: string;
+  startLine?: number;
+}) {
+  const dmp = new DiffMatchPatch();
+
+  const diffLines = useMemo(() => {
+    const diffs = dmp.diff_main(oldCode, newCode);
+    dmp.diff_cleanupSemantic(diffs);
+
+    const result: Array<{
+      type: 'equal' | 'insert' | 'delete';
+      oldLineNum: number | null;
+      newLineNum: number | null;
+      text: string;
+    }> = [];
+
+    let oldLineNum = startLine;
+    let newLineNum = startLine;
+
+    for (const [op, text] of diffs) {
+      const lines = text.split('\n');
+      // diff-match-patch does not include trailing newline in the chunk,
+      // so if text ends with newline the last element after split is ''.
+      const hasTrailingNewline = text.endsWith('\n');
+      const lineCount = hasTrailingNewline ? lines.length - 1 : lines.length;
+
+      for (let i = 0; i < lineCount; i++) {
+        const lineText = lines[i];
+        if (op === 0) {
+          // equal
+          result.push({
+            type: 'equal',
+            oldLineNum,
+            newLineNum,
+            text: lineText,
+          });
+          oldLineNum++;
+          newLineNum++;
+        } else if (op === -1) {
+          // delete
+          result.push({
+            type: 'delete',
+            oldLineNum,
+            newLineNum: null,
+            text: lineText,
+          });
+          oldLineNum++;
+        } else if (op === 1) {
+          // insert
+          result.push({
+            type: 'insert',
+            oldLineNum: null,
+            newLineNum,
+            text: lineText,
+          });
+          newLineNum++;
+        }
+      }
+    }
+
+    return result;
+  }, [oldCode, newCode, startLine]);
+
+  return (
+    <div className="diff-viewer">
+      {diffLines.map((line, idx) => (
+        <div key={idx} className={`diff-line diff-${line.type}`}>
+          <span className="diff-gutter diff-gutter-old">
+            {line.oldLineNum ?? ''}
+          </span>
+          <span className="diff-gutter diff-gutter-new">
+            {line.newLineNum ?? ''}
+          </span>
+          <span className="diff-marker">
+            {line.type === 'equal' ? ' ' : line.type === 'insert' ? '+' : '-'}
+          </span>
+          <span className="diff-content">{line.text}</span>
+        </div>
+      ))}
+    </div>
+  );
 }

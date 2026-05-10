@@ -12,6 +12,7 @@ services:
     volumes:
       - postgres-data:/var/lib/postgresql/data
       - ./ops/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - ./ops/postgres/sync-schema.sh:/docker-entrypoint-initdb.d/sync-schema.sh:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U fixagent -d fixagent"]
       interval: 10s
@@ -35,17 +36,17 @@ services:
     command: ["/usr/local/bin/orchestrator", "serve-http", "--host", "0.0.0.0", "--port", "3000"]
 
   web:
-    image: node:22-bookworm
+    build:
+      context: .
+      dockerfile: web/Dockerfile
     container_name: fixagent-web
     restart: unless-stopped
-    working_dir: /app
     depends_on:
       - orchestrator
     ports:
       - "5173:5173"
-    volumes:
-      - ./web:/app
-    command: ["sh", "-lc", "npm install && npm run dev -- --host 0.0.0.0 --port 5173"]
+    environment:
+      - VITE_API_BASE_URL=http://localhost:3000/api
 
 volumes:
   postgres-data:

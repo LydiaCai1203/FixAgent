@@ -1,5 +1,6 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use sqlx::FromRow;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IngestReviewResult {
@@ -60,7 +61,7 @@ pub struct PullRequestSummary {
     pub updated_at: DateTime<Utc>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct IssueSummary {
     pub id: i64,
     pub project_key: String,
@@ -74,6 +75,10 @@ pub struct IssueSummary {
     pub start_line: i64,
     pub end_line: i64,
     pub title: String,
+    pub description: String,
+    pub suggestion: String,
+    pub suggestion_code: Option<String>,
+    pub original_code: Option<String>,
     pub status: String,
     pub confidence: Option<i32>,
     pub created_at: DateTime<Utc>,

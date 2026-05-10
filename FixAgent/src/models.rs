@@ -31,6 +31,7 @@ pub enum FixExecutionStatus {
     Suggested,
     NeedsHuman,
     InvalidCandidate,
+    NotReproducible,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]

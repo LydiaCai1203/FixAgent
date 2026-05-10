@@ -9,4 +9,7 @@ pub mod fix;
 pub mod prompt;
 
 pub use fix::FixAgent;
-pub use prompt::{build_fix_prompt, build_exploration_prompt, FIX_SYSTEM_PROMPT};
+pub use prompt::{
+    build_fix_prompt, build_exploration_prompt, build_verification_prompt, FIX_SYSTEM_PROMPT,
+    VERIFY_SYSTEM_PROMPT,
+};
