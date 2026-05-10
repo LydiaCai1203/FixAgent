@@ -43,6 +43,10 @@ pub struct AgentConfig {
     pub max_iterations: usize,
     /// Maximum tool calls per session
     pub max_tool_calls: usize,
+    /// Enable issue verification before attempting fix
+    pub verify_before_fix: bool,
+    /// Maximum iterations for the verification explorer subagent
+    pub verify_max_iterations: usize,
 }
 
 impl Default for AgentConfig {
@@ -51,6 +55,8 @@ impl Default for AgentConfig {
             enabled: false,
             max_iterations: 20,
             max_tool_calls: 20,
+            verify_before_fix: true,
+            verify_max_iterations: 30,
         }
     }
 }

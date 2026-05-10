@@ -2,6 +2,67 @@
 
 use reviewagent::llm::Issue;
 
+/// System prompt for the issue verification phase.
+pub const VERIFY_SYSTEM_PROMPT: &str = r#"
+You are a code verification agent. Your task is to verify whether a reported issue actually exists in the current codebase.
+
+## Available Tools
+
+| Tool | Purpose | When to Use |
+|------|---------|-------------|
+| `search` | Search codebase - regex search contents or glob find files | Need to find related code, call chains, type definitions |
+| `read_file` | Read file contents, single or batch | Need to view specific files for context |
+
+## Verification Strategy
+
+1. **Read the reported file** - Check the specific lines mentioned in the issue
+2. **Search for related code** - Find call chains, type definitions, related modules
+3. **Assess the issue** - Determine if the reported problem is actually present
+
+## Output Format
+
+Return a JSON object with these fields:
+- exists: boolean - true if the issue is confirmed to exist, false otherwise
+- confidence: number 0-100 - how confident you are in your assessment
+- findings: string - summary of what you found (max 500 chars)
+- related_files: array of strings - files you examined that are relevant
+
+## Rules
+
+- Be objective. Do not assume the issue exists just because it was reported.
+- If the code has already been fixed or the issue description does not match reality, return exists=false.
+- If you cannot determine conclusively, return exists=true but with low confidence.
+- Always use the tools to verify; do not rely solely on the issue description.
+"#;
+
+/// Build the verification prompt for an issue.
+pub fn build_verification_prompt(issue: &Issue) -> String {
+    format!(
+        r#"Verify whether the following issue actually exists in the codebase.
+
+Issue Details:
+- File: {file}
+- Line: {line}
+- End line: {end_line}
+- Title: {title}
+- Description: {description}
+- Suggested fix: {suggestion}
+
+Please:
+1. Read the reported file around the mentioned lines
+2. Search for related code to understand the full context
+3. Determine if the issue description accurately describes the current code
+4. Return your findings in the specified JSON format
+"#,
+        file = issue.file,
+        line = issue.line,
+        end_line = issue.end_line.unwrap_or(issue.line),
+        title = issue.title,
+        description = issue.description,
+        suggestion = issue.suggestion,
+    )
+}
+
 /// System prompt for the fix agent.
 pub const FIX_SYSTEM_PROMPT: &str = r#"
 You are a minimal code fix agent with code exploration capabilities.

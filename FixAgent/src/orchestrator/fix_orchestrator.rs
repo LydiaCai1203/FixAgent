@@ -2,14 +2,16 @@
 //!
 //! `FixOrchestrator` coordinates the entire fix process:
 //! 1. Prepare fix task (load issue, resolve file)
-//! 2. Run FixAgent to generate patch (with or without tools)
-//! 3. Validate patch via refine layer
-//! 4. Apply or reject patch
-//! 5. Return structured fix result
+//! 2. Verify the issue actually exists (optional, enabled by default)
+//! 3. Run FixAgent to generate patch (with or without tools)
+//! 4. Validate patch via refine layer
+//! 5. Apply or reject patch
+//! 6. Return structured fix result
 
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
-use crate::agent::{FixAgent, FIX_SYSTEM_PROMPT, build_fix_prompt};
+use crate::agent::{FixAgent, FIX_SYSTEM_PROMPT, VERIFY_SYSTEM_PROMPT, build_fix_prompt, build_verification_prompt};
 use crate::config::FixAgentConfig;
 use crate::error::{FixError, Result};
 use crate::models::{
@@ -17,6 +19,8 @@ use crate::models::{
 };
 use crate::refine::PatchValidator;
 use reviewagent::llm::{Issue, LlmClient, ReviewResponse};
+use reviewagent::agent::ExplorerAgent;
+use reviewagent::tools::rig_tools::ToolCallReporter;
 
 /// Orchestrates the complete fix workflow.
 pub struct FixOrchestrator {
@@ -64,6 +68,46 @@ impl FixOrchestrator {
         task: FixTask,
         dry_run: bool,
     ) -> Result<FixResult> {
+        // Phase 1: Verify the issue actually exists (if enabled)
+        if self.config.agent.verify_before_fix {
+            match self.verify_issue(&task.issue).await {
+                Ok(verification) => {
+                    if !verification.exists {
+                        tracing::info!(
+                            "Issue '{}' not reproducible (confidence: {}%). Findings: {}",
+                            task.issue.title,
+                            verification.confidence,
+                            verification.findings
+                        );
+                        return Ok(FixResult {
+                            issue_id: task.issue_id,
+                            issue_index: task.issue_index,
+                            issue_title: task.issue.title.clone(),
+                            status: FixExecutionStatus::NotReproducible,
+                            dry_run,
+                            file: task.issue.file.clone(),
+                            applied_range: LineRange {
+                                start: task.issue.line,
+                                end: task.issue.end_line.unwrap_or(task.issue.line),
+                            },
+                            summary: "Issue not reproducible".to_string(),
+                            rationale: verification.findings,
+                            verification_steps: verification.related_files,
+                            replacement_preview: String::new(),
+                        });
+                    }
+                    tracing::info!(
+                        "Issue verified (confidence: {}%). Findings: {}",
+                        verification.confidence,
+                        verification.findings
+                    );
+                }
+                Err(e) => {
+                    tracing::warn!("Issue verification failed: {}. Proceeding with fix anyway.", e);
+                }
+            }
+        }
+
         let target_file = self.resolve_target_file(&task.issue.file)?;
         let original_content = tokio::fs::read_to_string(&target_file).await?;
 
@@ -139,6 +183,46 @@ impl FixOrchestrator {
         })
     }
 
+    /// Verify whether a reported issue actually exists in the codebase.
+    /// Uses the ExplorerAgent from ReviewAgent to gather context and
+    /// then asks an LLM to assess whether the issue is reproducible.
+    async fn verify_issue(&self, issue: &Issue) -> Result<IssueVerification> {
+        tracing::info!("Starting issue verification for: {}", issue.title);
+
+        let review_config = crate::config::load_reviewagent_config(&self.repo_dir)
+            .map_err(|e| FixError::Config(format!("Failed to load review config: {}", e)))?;
+
+        let explorer = ExplorerAgent::new(&review_config, self.repo_dir.clone())
+            .map_err(|e| FixError::Config(format!("Failed to create explorer: {}", e)))?;
+
+        let prompt = build_verification_prompt(issue);
+        let reporter = Arc::new(reviewagent::tools::rig_tools::NoopReporter);
+
+        let response = explorer
+            .run(&prompt, reporter)
+            .await
+            .map_err(|e| FixError::Agent(format!("Verification agent failed: {}", e)))?;
+
+        // Try to parse the response as JSON
+        let verification: IssueVerification = if let Ok(v) = serde_json::from_str(&response) {
+            v
+        } else if let Some(json_str) = extract_json(&response) {
+            serde_json::from_str(json_str)
+                .map_err(|e| FixError::Agent(format!("Failed to parse verification JSON: {}", e)))?
+        } else {
+            // Fallback: assume issue exists if we can't parse
+            tracing::warn!("Could not parse verification response as JSON, assuming issue exists");
+            IssueVerification {
+                exists: true,
+                confidence: 50,
+                findings: format!("Unparseable verification response: {}", response),
+                related_files: vec![],
+            }
+        };
+
+        Ok(verification)
+    }
+
     async fn load_review(
         &self,
         review_file: &Path,
@@ -182,6 +266,48 @@ impl FixOrchestrator {
 
         Ok(canonical)
     }
+}
+
+/// Verification result for an issue.
+#[derive(Debug, Clone, serde::Deserialize)]
+struct IssueVerification {
+    exists: bool,
+    confidence: u8,
+    findings: String,
+    #[serde(default)]
+    related_files: Vec<String>,
+}
+
+/// Extract JSON from a string that might have markdown code blocks.
+fn extract_json(text: &str) -> Option<&str> {
+    // Try to find JSON in code blocks
+    if let Some(start) = text.find("```json") {
+        let content_start = start + 7;
+        if let Some(end) = text[content_start..].find("```") {
+            return Some(text[content_start..content_start + end].trim());
+        }
+    }
+
+    // Try plain code blocks
+    if let Some(start) = text.find("```") {
+        let content_start = start + 3;
+        let content_start = text[content_start..]
+            .find('\n')
+            .map(|i| content_start + i + 1)
+            .unwrap_or(content_start);
+        if let Some(end) = text[content_start..].find("```") {
+            return Some(text[content_start..content_start + end].trim());
+        }
+    }
+
+    // Try to find raw JSON
+    if let Some(start) = text.find('{')
+        && let Some(end) = text.rfind('}')
+    {
+        return Some(&text[start..=end]);
+    }
+
+    None
 }
 
 /// Apply a replacement to file content.
