@@ -1267,8 +1267,8 @@ button {
   font-size: 12px;
   line-height: 1.6;
   border-radius: 12px;
-  background: rgba(6, 22, 18, 0.95);
-  border: 1px solid rgba(201, 223, 114, 0.1);
+  background: #0d1117;
+  border: 1px solid #30363d;
   overflow-x: auto;
 }
 
@@ -1282,17 +1282,17 @@ button {
   width: 40px;
   text-align: right;
   padding: 0 8px;
-  color: var(--text-muted);
+  color: #6e7781;
   user-select: none;
-  opacity: 0.6;
+  background: #0d1117;
 }
 
 .diff-gutter-old {
-  border-right: 1px solid rgba(201, 223, 114, 0.06);
+  border-right: 1px solid #21262d;
 }
 
 .diff-gutter-new {
-  border-right: 1px solid rgba(201, 223, 114, 0.06);
+  border-right: 1px solid #21262d;
 }
 
 .diff-marker {
@@ -1300,42 +1300,53 @@ button {
   width: 20px;
   text-align: center;
   user-select: none;
-  color: var(--text-muted);
-  opacity: 0.8;
+  color: #6e7781;
 }
 
 .diff-content {
   padding-left: 8px;
   padding-right: 16px;
-  color: #c5e8d5;
+  color: #c9d1d9;
 }
 
 .diff-equal {
-  background: transparent;
+  background: #0d1117;
+}
+
+.diff-equal .diff-gutter {
+  background: #0d1117;
 }
 
 .diff-insert {
-  background: rgba(44, 198, 168, 0.08);
+  background: #0f3d1f;
+}
+
+.diff-insert .diff-gutter {
+  background: #0f3d1f;
+  color: #3fb950;
 }
 
 .diff-insert .diff-marker {
-  color: #2cc6a8;
-  opacity: 1;
+  color: #3fb950;
 }
 
 .diff-insert .diff-content {
-  color: #a8f0d8;
+  color: #aff5b4;
 }
 
 .diff-delete {
-  background: rgba(230, 100, 100, 0.08);
+  background: #3d1515;
+}
+
+.diff-delete .diff-gutter {
+  background: #3d1515;
+  color: #f85149;
 }
 
 .diff-delete .diff-marker {
-  color: #e66464;
-  opacity: 1;
+  color: #f85149;
 }
 
 .diff-delete .diff-content {
-  color: #f0a8a8;
+  color: #ffdcd7;
 }
