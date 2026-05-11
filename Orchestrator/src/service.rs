@@ -1879,7 +1879,7 @@ impl OrchestratorService {
         confidence: Option<i32>,
         dry_run: bool,
     ) -> Result<RunFixResult> {
-        let runner = FixRunner::new(repo_dir)
+        let runner = FixRunner::new(repo_dir.clone())
             .await
             .map_err(|e| OrchestratorError::Config(e.to_string()))?;
 
@@ -1891,7 +1891,7 @@ impl OrchestratorService {
                 file: file_path,
                 line: start_line as usize,
                 end_line: Some(end_line as usize),
-                title,
+                title: title.clone(),
                 description,
                 suggestion,
                 suggestion_code,
