@@ -781,7 +781,7 @@ export default function App() {
                     onClick={() => void handleFixAll(selectedPr)}
                     disabled={pendingFixAllPrIds.includes(selectedPr.id) || reviewRunningPrIds.includes(selectedPr.id) || pendingReviewPrIds.includes(selectedPr.id)}
                   >
-                    {pendingFixAllPrIds.includes(selectedPr.id) ? 'Fixing...' : 'Fix All'}
+                    {pendingFixAllPrIds.includes(selectedPr.id) ? <span className="brew-pr-run-spinner" aria-hidden="true" /> : 'Fix All'}
                   </button>
                 </div>
               </div>
@@ -866,9 +866,9 @@ export default function App() {
                            event.stopPropagation();
                            void handleFixIssue(issue);
                          }}
-                         disabled={pendingIssueFixIds.includes(issue.id) || pendingFixAllPrIds.includes(selectedPr.id)}
-                       >
-                         {pendingIssueFixIds.includes(issue.id) ? 'Fixing...' : 'Fix'}
+                        disabled={pendingIssueFixIds.includes(issue.id) || pendingFixAllPrIds.includes(selectedPr.id)}
+                        >
+                          {pendingIssueFixIds.includes(issue.id) ? <span className="brew-pr-run-spinner" aria-hidden="true" /> : 'Fix'}
                        </button>
                      </div>
                    </article>
@@ -1011,7 +1011,7 @@ export default function App() {
                 onClick={() => void handleFixIssue(selectedIssue)}
                 disabled={pendingIssueFixIds.includes(selectedIssue.id) || pendingFixAllPrIds.includes(selectedPr.id)}
               >
-                {pendingIssueFixIds.includes(selectedIssue.id) ? 'Fixing...' : 'Fix'}
+                {pendingIssueFixIds.includes(selectedIssue.id) ? <span className="brew-pr-run-spinner" aria-hidden="true" /> : 'Fix'}
               </button>
               <button className="brew-btn-secondary" onClick={() => setSelectedIssueId(null)}>关闭</button>
             </div>
