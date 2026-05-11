@@ -75,6 +75,11 @@ pub struct CreatePrRequest {
 }
 
 #[derive(Debug, Deserialize)]
+pub struct UpdatePrStatusRequest {
+    pub status: String,
+}
+
+#[derive(Debug, Deserialize)]
 pub struct StartReviewRequest {
     pub repo_dir: Option<String>,
     pub project_key: String,
@@ -92,6 +97,7 @@ pub async fn serve_http(service: OrchestratorService, host: String, port: u16) -
         .route("/health", get(health))
         .route("/projects", get(list_projects).post(create_project).delete(delete_project))
         .route("/prs", get(list_prs).post(create_pr))
+        .route("/prs/{pr_id}/status", patch(update_pr_status))
         .route("/reviews", post(start_review))
         .route("/issues", get(list_issues))
         .route("/issues/{issue_id}", patch(update_issue_status).delete(delete_issue))
@@ -150,6 +156,15 @@ async fn create_pr(
     Json(request): Json<CreatePrRequest>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let result = service.create_pr(request.project_key, request.pr_url).await?;
+    Ok(Json(serde_json::json!(result)))
+}
+
+async fn update_pr_status(
+    State(service): State<OrchestratorService>,
+    Path(pr_id): Path<i64>,
+    Json(request): Json<UpdatePrStatusRequest>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let result = service.set_pr_status(pr_id, request.status).await?;
     Ok(Json(serde_json::json!(result)))
 }
 

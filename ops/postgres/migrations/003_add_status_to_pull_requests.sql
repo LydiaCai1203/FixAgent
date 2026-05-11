@@ -1,0 +1,1 @@
+ALTER TABLE pull_requests ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'open';

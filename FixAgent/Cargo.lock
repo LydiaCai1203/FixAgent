@@ -545,7 +545,11 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
+ "glob",
+ "ignore",
+ "regex",
  "reviewagent",
+ "rig-core",
  "schemars",
  "serde",
  "serde_json",
