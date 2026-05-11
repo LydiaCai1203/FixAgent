@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useRef } from 'react';
 import DiffMatchPatch from 'diff-match-patch';
 
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || `${window.location.origin}/api`).replace(/\/$/, '');
@@ -105,6 +105,8 @@ export default function App() {
   const [pendingReviewPrIds, setPendingReviewPrIds] = useState<number[]>([]);
   const [pendingIssueFixIds, setPendingIssueFixIds] = useState<number[]>([]);
   const [pendingFixAllPrIds, setPendingFixAllPrIds] = useState<number[]>([]);
+  const prsRef = useRef<PullRequestSummary[]>([]);
+  const projectIssuesRef = useRef<IssueSummary[]>([]);
 
   const selectedProject = useMemo(
     () => projects.find((project) => project.project_key === selectedProjectKey) ?? null,
@@ -249,6 +251,7 @@ export default function App() {
       }
       const data = (await response.json()) as PullRequestSummary[];
       setPrs(data);
+      prsRef.current = data;
 
       if (data.length === 0) {
         setSelectedPrId(null);
@@ -278,6 +281,7 @@ export default function App() {
       }
       const data = (await response.json()) as IssueSummary[];
       setProjectIssues(data);
+      projectIssuesRef.current = data;
     } catch (err) {
       setError(toErrorMessage(err));
       setProjectIssues([]);
@@ -298,6 +302,17 @@ export default function App() {
       setReviewRunningPrIds(
         Array.from(prIdentityById.entries())
           .filter(([, identity]) => runningPrNumbers.has(identity))
+          .filter(([prId]) => {
+            if (pendingFixAllPrIds.includes(prId)) return false;
+            const pr = prsRef.current.find((p) => p.id === prId);
+            if (pr) {
+              const hasFixingIssue = projectIssuesRef.current.some(
+                (issue) => issue.pr_number === pr.pr_number && issue.platform === pr.platform && pendingIssueFixIds.includes(issue.id),
+              );
+              if (hasFixingIssue) return false;
+            }
+            return true;
+          })
           .map(([prId]) => prId),
       );
       setPendingReviewPrIds((current) => current.filter((prId) => !prIdentityById.has(prId) || !runningPrNumbers.has(prIdentityById.get(prId) ?? '')));
