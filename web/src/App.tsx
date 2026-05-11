@@ -287,7 +287,7 @@ export default function App() {
         current.filter((id) => {
           const issue = data.find((i) => i.id === id);
           if (!issue) return false;
-          return ['open', 'reopened', 'needs_human'].includes(issue.status);
+          return ['open', 'reopened', 'needs_human', 'claimed'].includes(issue.status);
         }),
       );
     } catch (err) {
