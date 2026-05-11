@@ -840,10 +840,10 @@ button {
   gap: 8px;
 }
 
-.brew-bug-card-actions {
-  margin-top: 12px;
+.brew-bug-card .brew-card-footer {
   display: flex;
-  justify-content: flex-end;
+  align-items: center;
+  justify-content: space-between;
 }
 
 .brew-fix-action {

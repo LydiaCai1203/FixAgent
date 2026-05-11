@@ -789,7 +789,8 @@ export default function App() {
                        <span className="brew-chip">PR #{issue.pr_number}</span>
                        <span className="brew-chip">Confidence {issue.confidence ?? '-'}</span>
                      </div>
-                     <div className="brew-bug-card-actions">
+                     <div className="brew-card-footer">
+                       <span>Updated {formatDateTime(issue.updated_at)}</span>
                        <button
                          className="brew-fix-action"
                          onClick={(event) => {
@@ -801,7 +802,6 @@ export default function App() {
                          {pendingIssueFixIds.includes(issue.id) ? 'Fixing...' : 'Fix'}
                        </button>
                      </div>
-                     <div className="brew-card-footer">Updated {formatDateTime(issue.updated_at)}</div>
                    </article>
                 ))}
                 {projectIssues.length === 0 ? <div className="brew-empty-block">This PR has no bugs in pool.</div> : null}
