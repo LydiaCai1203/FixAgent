@@ -283,6 +283,13 @@ export default function App() {
       const data = (await response.json()) as IssueSummary[];
       setProjectIssues(data);
       projectIssuesRef.current = data;
+      setPendingIssueFixIds((current) =>
+        current.filter((id) => {
+          const issue = data.find((i) => i.id === id);
+          if (!issue) return false;
+          return ['open', 'reopened', 'needs_human'].includes(issue.status);
+        }),
+      );
     } catch (err) {
       setError(toErrorMessage(err));
       setProjectIssues([]);
@@ -479,7 +486,6 @@ export default function App() {
       setError(toErrorMessage(err));
     } finally {
       isFixingRef.current = false;
-      setPendingIssueFixIds((current) => current.filter((item) => item !== issue.id));
     }
   }
 
