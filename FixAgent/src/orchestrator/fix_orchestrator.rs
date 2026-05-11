@@ -95,6 +95,7 @@ impl FixOrchestrator {
                             rationale: verification.findings,
                             verification_steps: verification.related_files,
                             replacement_preview: String::new(),
+                            confirmation: None,
                         });
                     }
                     tracing::info!(

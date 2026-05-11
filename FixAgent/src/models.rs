@@ -32,7 +32,7 @@ pub struct FixConfirmation {
     pub findings: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum FixExecutionStatus {
     Applied,
