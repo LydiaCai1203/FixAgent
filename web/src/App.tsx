@@ -287,7 +287,7 @@ export default function App() {
         current.filter((id) => {
           const issue = data.find((i) => i.id === id);
           if (!issue) return false;
-          return ['open', 'reopened', 'needs_human'].includes(issue.status);
+          return ['open', 'reopened', 'needs_human', 'claimed'].includes(issue.status);
         }),
       );
     } catch (err) {
@@ -316,6 +316,12 @@ export default function App() {
             return true;
           })
           .map(([prId]) => prId),
+      );
+      setPendingFixAllPrIds((current) =>
+        current.filter((prId) => {
+          const identity = prIdentityById.get(prId);
+          return identity ? runningPrNumbers.has(identity) : false;
+        }),
       );
       setPendingReviewPrIds((current) => current.filter((prId) => !prIdentityById.has(prId) || !runningPrNumbers.has(prIdentityById.get(prId) ?? '')));
     } catch (err) {
@@ -515,7 +521,6 @@ export default function App() {
       setError(toErrorMessage(err));
     } finally {
       isFixingRef.current = false;
-      setPendingFixAllPrIds((current) => current.filter((item) => item !== pr.id));
     }
   }
 
