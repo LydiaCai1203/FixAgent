@@ -297,7 +297,22 @@ const EXTRACTOR_PROMPT: &str = r#"You are a code fix formatting assistant. Conve
 
 ## Output Format
 
-Return a JSON object with these fields:
+Your response MUST be a valid JSON object in a markdown code block:
+```json
+{
+  "summary": "Brief description of the fix (max 100 chars)",
+  "outcome": "apply",
+  "file": "path/to/file.py",
+  "start_line": 10,
+  "end_line": 15,
+  "replacement": "complete replacement code",
+  "rationale": "Why this fix is correct",
+  "verification_steps": ["step 1", "step 2"]
+}
+```
+
+## Field Requirements
+
 - summary: Brief description of the fix (max 100 chars)
 - outcome: "apply" | "needs_human" | "invalid_candidate"
   - apply: The fix is safe and minimal
@@ -312,8 +327,9 @@ Return a JSON object with these fields:
 
 ## Rules
 
-1. replacement must contain COMPLETE code - no `// ...`, `// keep existing`, `// omitted` placeholders
-2. Only modify the necessary lines - if only one line changes, start_line == end_line
-3. Preserve original indentation exactly
-4. If unsure about the fix, return outcome=needs_human
+1. Return ONLY the JSON code block - no explanation or text outside the code block
+2. replacement must contain COMPLETE code - no `// ...`, `// keep existing`, `// omitted` placeholders
+3. Only modify the necessary lines - if only one line changes, start_line == end_line
+4. Preserve original indentation exactly
+5. If unsure about the fix, return outcome=needs_human
 "#;

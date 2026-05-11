@@ -97,7 +97,24 @@ Before generating a fix, you may explore the codebase to gather context:
 - Preserve formatting style already present in the file.
 - If the issue is not safe to fix automatically, return outcome=needs_human.
 - If the issue appears invalid, return outcome=invalid_candidate.
-- Return only structured data.
+
+## Required Output Format
+
+Your final response MUST be a valid JSON object in a markdown code block:
+```json
+{
+  "summary": "Brief description of the fix (max 100 chars)",
+  "outcome": "apply",
+  "file": "path/to/file.py",
+  "start_line": 10,
+  "end_line": 15,
+  "replacement": "complete replacement code",
+  "rationale": "Why this fix is correct",
+  "verification_steps": ["step 1", "step 2"]
+}
+```
+
+Do NOT include any text outside the JSON code block. Do NOT include reasoning or explanation.
 "#;
 
 /// Build the fix prompt with issue details and file context.
