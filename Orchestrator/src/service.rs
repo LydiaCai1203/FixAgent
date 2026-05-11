@@ -1897,6 +1897,12 @@ impl OrchestratorService {
             .await
             .map_err(|e| OrchestratorError::Config(e.to_string()))?;
 
+        if !dry_run && fix_result.status == FixExecutionStatus::Applied {
+            if let Err(e) = git_commit_and_push(&repo_dir, issue_id, &title).await {
+                tracing::warn!("Git commit/push failed for issue {}: {}", issue_id, e);
+            }
+        }
+
         let fix_status = map_fix_status(&fix_result.status).to_string();
         let issue_status = map_issue_status(&fix_result.status).to_string();
 
@@ -2192,6 +2198,73 @@ impl OrchestratorService {
             completed_at: row.11,
         })
     }
+}
+
+async fn git_commit_and_push(
+    repo_dir: &PathBuf,
+    issue_id: i64,
+    title: &str,
+) -> std::result::Result<(), String> {
+    let output = tokio::process::Command::new("git")
+        .args(["config", "user.email", "fixagent@monkeycode.ai"])
+        .current_dir(repo_dir)
+        .output()
+        .await
+        .map_err(|e| format!("git config user.email failed: {}", e))?;
+    if !output.status.success() {
+        return Err(format!("git config user.email failed: {}", String::from_utf8_lossy(&output.stderr)));
+    }
+
+    let output = tokio::process::Command::new("git")
+        .args(["config", "user.name", "FixAgent"])
+        .current_dir(repo_dir)
+        .output()
+        .await
+        .map_err(|e| format!("git config user.name failed: {}", e))?;
+    if !output.status.success() {
+        return Err(format!("git config user.name failed: {}", String::from_utf8_lossy(&output.stderr)));
+    }
+
+    let output = tokio::process::Command::new("git")
+        .args(["add", "-A"])
+        .current_dir(repo_dir)
+        .output()
+        .await
+        .map_err(|e| format!("git add -A failed: {}", e))?;
+    if !output.status.success() {
+        return Err(format!("git add failed: {}", String::from_utf8_lossy(&output.stderr)));
+    }
+
+    let commit_msg = format!("fix: {} (Issue #{})\n\nAutomated fix by FixAgent", title, issue_id);
+    let output = tokio::process::Command::new("git")
+        .args(["commit", "-m", &commit_msg])
+        .current_dir(repo_dir)
+        .output()
+        .await
+        .map_err(|e| format!("git commit failed: {}", e))?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        if stderr.contains("nothing to commit") {
+            tracing::info!("No changes to commit for issue {}", issue_id);
+            return Ok(());
+        }
+        return Err(format!("git commit failed: {}", stderr));
+    }
+
+    tracing::info!("Committed fix for issue {}: {}", issue_id, title);
+
+    let output = tokio::process::Command::new("git")
+        .args(["push"])
+        .current_dir(repo_dir)
+        .output()
+        .await
+        .map_err(|e| format!("git push failed: {}", e))?;
+    if !output.status.success() {
+        return Err(format!("git push failed: {}", String::from_utf8_lossy(&output.stderr)));
+    }
+
+    tracing::info!("Pushed fix for issue {} to remote", issue_id);
+    Ok(())
 }
 
 fn build_issue_fingerprint(
