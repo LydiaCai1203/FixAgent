@@ -613,6 +613,27 @@ export default function App() {
     };
   }
 
+  function isIssueFixLoading(issue: IssueSummary) {
+    if (pendingIssueFixIds.includes(issue.id)) {
+      return true;
+    }
+
+    if (issue.status === 'claimed') {
+      return true;
+    }
+
+    if (!selectedPr) {
+      return false;
+    }
+
+    const workflow = latestWorkflowForPr(selectedPr);
+    if (!workflow || workflow.status !== 'running') {
+      return false;
+    }
+
+    return ['open', 'reopened', 'needs_human'].includes(issue.status);
+  }
+
   return (
     <div className="brew-shell">
       <aside className="brew-sidebar">
@@ -889,9 +910,12 @@ export default function App() {
 
               <div className="brew-card-grid brew-bug-card-grid">
                 {projectIssues.map((issue) => (
-                  <article
-                    key={issue.id}
-                    className="brew-card brew-bug-card"
+                  (() => {
+                    const isIssueFixBusy = isIssueFixLoading(issue);
+                    return (
+                   <article
+                     key={issue.id}
+                     className="brew-card brew-bug-card"
                     onClick={() => setSelectedIssueId(issue.id)}
                     role="button"
                     tabIndex={0}
@@ -973,9 +997,9 @@ export default function App() {
                               event.stopPropagation();
                               void handleFixIssue(issue);
                             }}
-                            disabled={pendingIssueFixIds.includes(issue.id) || pendingFixAllPrIds.includes(selectedPr.id)}
+                            disabled={isIssueFixBusy || pendingFixAllPrIds.includes(selectedPr.id)}
                           >
-                            {pendingIssueFixIds.includes(issue.id) ? <span className="brew-fix-spinner" aria-hidden="true" /> : 'Fix'}
+                            {isIssueFixBusy ? <span className="brew-fix-spinner" aria-hidden="true" /> : 'Fix'}
                           </button>
                           {hoveredFixIssueId === issue.id ? (() => {
                             const { workflow, relatedRound, isPendingSubmission } = fixDetailsForIssue(issue);
@@ -999,6 +1023,8 @@ export default function App() {
                         </div>
                       </div>
                     </article>
+                    );
+                  })()
                 ))}
                 {projectIssues.length === 0 ? <div className="brew-empty-block">This PR has no bugs in pool.</div> : null}
               </div>
@@ -1137,9 +1163,9 @@ export default function App() {
               <button
                 className="brew-btn-primary"
                 onClick={() => void handleFixIssue(selectedIssue)}
-                disabled={pendingIssueFixIds.includes(selectedIssue.id) || pendingFixAllPrIds.includes(selectedPr.id)}
+                disabled={isIssueFixLoading(selectedIssue) || pendingFixAllPrIds.includes(selectedPr.id)}
               >
-                {pendingIssueFixIds.includes(selectedIssue.id) ? <span className="brew-fix-spinner" aria-hidden="true" /> : 'Fix'}
+                {isIssueFixLoading(selectedIssue) ? <span className="brew-fix-spinner" aria-hidden="true" /> : 'Fix'}
               </button>
               <button className="brew-btn-secondary" onClick={() => setSelectedIssueId(null)}>关闭</button>
             </div>
