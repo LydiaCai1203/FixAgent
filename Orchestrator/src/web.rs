@@ -40,6 +40,13 @@ pub struct UpdateIssueStatusRequest {
 }
 
 #[derive(Debug, Deserialize)]
+pub struct StartFixRequest {
+    pub repo_dir: Option<String>,
+    pub claimed_by: Option<String>,
+    pub dry_run: Option<bool>,
+}
+
+#[derive(Debug, Deserialize)]
 pub struct RunUntilStableRequest {
     pub repo_dir: Option<String>,
     pub project_key: String,
@@ -87,9 +94,11 @@ pub async fn serve_http(service: OrchestratorService, host: String, port: u16) -
         .route("/reviews", post(start_review))
         .route("/issues", get(list_issues))
         .route("/issues/{issue_id}", patch(update_issue_status))
+        .route("/issues/{issue_id}/fix", post(start_issue_fix))
         .route("/pr-stats", get(pr_stats))
         .route("/workflows", get(list_workflows).post(start_workflow))
         .route("/workflows/run-until-stable", post(run_until_stable))
+        .route("/prs/{pr_id}/fix-all", post(start_pr_fix_all))
         .route("/workflows/{workflow_run_id}", get(workflow_detail))
         .route("/workflows/{workflow_run_id}/rounds", get(workflow_rounds))
         .with_state(service);
@@ -190,6 +199,38 @@ async fn update_issue_status(
         .update_issue_status(issue_id, request.status)
         .await?;
     Ok(Json(serde_json::json!(result)))
+}
+
+async fn start_issue_fix(
+    State(service): State<OrchestratorService>,
+    Path(issue_id): Path<i64>,
+    Json(request): Json<StartFixRequest>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let repo_dir = PathBuf::from(request.repo_dir.unwrap_or_else(|| ".".to_string()));
+    let claimed_by = request.claimed_by.unwrap_or_else(|| "orchestrator-api".to_string());
+    let dry_run = request.dry_run.unwrap_or(false);
+
+    let workflow_run_id = service
+        .start_issue_fix_run(issue_id, repo_dir, claimed_by, dry_run)
+        .await?;
+
+    Ok(Json(serde_json::json!({ "workflow_run_id": workflow_run_id })))
+}
+
+async fn start_pr_fix_all(
+    State(service): State<OrchestratorService>,
+    Path(pr_id): Path<i64>,
+    Json(request): Json<StartFixRequest>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let repo_dir = PathBuf::from(request.repo_dir.unwrap_or_else(|| ".".to_string()));
+    let claimed_by = request.claimed_by.unwrap_or_else(|| "orchestrator-api".to_string());
+    let dry_run = request.dry_run.unwrap_or(false);
+
+    let workflow_run_id = service
+        .start_pr_fix_all_run(pr_id, repo_dir, claimed_by, dry_run)
+        .await?;
+
+    Ok(Json(serde_json::json!({ "workflow_run_id": workflow_run_id })))
 }
 
 async fn pr_stats(

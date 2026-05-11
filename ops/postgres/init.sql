@@ -40,6 +40,7 @@ CREATE TABLE IF NOT EXISTS issues (
     description TEXT NOT NULL,
     suggestion TEXT NOT NULL,
     suggestion_code TEXT,
+    original_code TEXT,
     confidence INTEGER,
     status TEXT NOT NULL,
     source_bot TEXT NOT NULL,
