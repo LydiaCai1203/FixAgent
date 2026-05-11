@@ -879,6 +879,71 @@ button {
   border-top: 1px solid rgba(201, 223, 114, 0.08);
 }
 
+.brew-pr-card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.brew-pr-status-badge {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  padding: 2px 8px;
+  border-radius: 6px;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.brew-pr-status-open {
+  background: rgba(201, 223, 114, 0.10);
+  color: var(--accent);
+  border: 1px solid rgba(201, 223, 114, 0.22);
+}
+
+.brew-pr-status-ready {
+  background: rgba(44, 198, 168, 0.12);
+  color: #6ee7b7;
+  border: 1px solid rgba(44, 198, 168, 0.30);
+}
+
+.brew-pr-status-toggle {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 10px;
+  border-radius: 6px;
+  border: 1px solid rgba(201, 223, 114, 0.18);
+  background: rgba(201, 223, 114, 0.06);
+  color: var(--text-secondary);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.brew-pr-status-toggle:hover:not(:disabled) {
+  background: rgba(201, 223, 114, 0.14);
+  color: var(--text-primary);
+  border-color: rgba(201, 223, 114, 0.32);
+}
+
+.brew-pr-status-toggle:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.brew-pr-status-toggle-reopen {
+  border-color: rgba(248, 113, 113, 0.22);
+  color: rgba(248, 113, 113, 0.7);
+  background: rgba(248, 113, 113, 0.06);
+}
+
+.brew-pr-status-toggle-reopen:hover:not(:disabled) {
+  background: rgba(248, 113, 113, 0.12);
+  color: #f87171;
+  border-color: rgba(248, 113, 113, 0.36);
+}
+
 .brew-bug-card strong {
   font-size: 14px;
 }

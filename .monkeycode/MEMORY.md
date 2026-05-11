@@ -21,6 +21,26 @@
   - 如果当前已在某个功能分支上，继续在该分支上提交新改动，不要切到新分支。
   - 只有在当前分支已合并到 main 且需要开始全新的大功能时，才考虑创建新分支。
 
+[分支管理偏好补充]
+- Date: 2026-05-11
+- Context: 本次修复中再次确认用户希望持续在同一分支上开发
+- Instructions:
+  - 后续同一任务链路内继续沿用当前分支，不要重复创建新分支。
+
+[前端状态知识]
+- Date: 2026-05-11
+- Context: Agent 在执行 Fix/Fix All 按钮 loading 修复时发现
+- Category: 代码模式
+- Instructions:
+  - 单个 issue 的 Fix 在后端执行期间会先把 issue 状态置为 `claimed`，前端需要把 `claimed` 视为仍在修复中。
+  - Fix All 的按钮 loading 不能在请求返回后立即清除，应跟随后端 workflow 的 `running` 状态持续显示。
+
+[FixAgent 执行方式偏好]
+- Date: 2026-05-11
+- Context: 用户明确要求 Fix 不要走 run_simple
+- Instructions:
+  - FixAgent 执行修复时统一使用 Agent 模式，不要走 `run_simple()` 直提取路径。
+
 [编译检查偏好]
 - Date: 2026-05-10
 - Context: 用户明确指示跳过编译检查

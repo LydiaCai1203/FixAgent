@@ -277,10 +277,10 @@ impl OrchestratorService {
         Ok(())
     }
 
-    pub async fn list_prs(&self, project_key: String) -> Result<Vec<PullRequestSummary>> {
-        let rows = sqlx::query_as::<_, (i64, i64, String, i64, String, Option<String>, chrono::DateTime<Utc>, chrono::DateTime<Utc>)>(
+     pub async fn list_prs(&self, project_key: String) -> Result<Vec<PullRequestSummary>> {
+        let rows = sqlx::query_as::<_, (i64, i64, String, i64, String, Option<String>, String, chrono::DateTime<Utc>, chrono::DateTime<Utc>)>(
             r#"
-            SELECT pr.id, pr.project_id, pr.platform, pr.pr_number, pr.pr_url, pr.latest_commit_sha, pr.created_at, pr.updated_at
+            SELECT pr.id, pr.project_id, pr.platform, pr.pr_number, pr.pr_url, pr.latest_commit_sha, pr.status, pr.created_at, pr.updated_at
             FROM pull_requests pr
             JOIN projects p ON p.id = pr.project_id
             WHERE p.project_key = $1
@@ -293,13 +293,14 @@ impl OrchestratorService {
 
         Ok(rows
             .into_iter()
-            .map(|(id, project_id, platform, pr_number, pr_url, latest_commit_sha, created_at, updated_at)| PullRequestSummary {
+            .map(|(id, project_id, platform, pr_number, pr_url, latest_commit_sha, status, created_at, updated_at)| PullRequestSummary {
                 id,
                 project_id,
                 platform,
                 pr_number,
                 pr_url,
                 latest_commit_sha,
+                status,
                 created_at,
                 updated_at,
             })
@@ -333,13 +334,13 @@ impl OrchestratorService {
         .await?
         .ok_or_else(|| OrchestratorError::Config(format!("Project not found: {}", project_key)))?;
 
-        let row = sqlx::query_as::<_, (i64, i64, String, i64, String, Option<String>, chrono::DateTime<Utc>, chrono::DateTime<Utc>)>(
+        let row = sqlx::query_as::<_, (i64, i64, String, i64, String, Option<String>, String, chrono::DateTime<Utc>, chrono::DateTime<Utc>)>(
             r#"
             INSERT INTO pull_requests (project_id, platform, pr_number, pr_url, latest_commit_sha)
             VALUES ($1, $2, $3, $4, NULL)
             ON CONFLICT (project_id, platform, pr_number)
             DO UPDATE SET pr_url = EXCLUDED.pr_url, updated_at = NOW()
-            RETURNING id, project_id, platform, pr_number, pr_url, latest_commit_sha, created_at, updated_at
+            RETURNING id, project_id, platform, pr_number, pr_url, latest_commit_sha, status, created_at, updated_at
             "#,
         )
         .bind(project_id)
@@ -356,8 +357,9 @@ impl OrchestratorService {
             pr_number: row.3,
             pr_url: row.4,
             latest_commit_sha: row.5,
-            created_at: row.6,
-            updated_at: row.7,
+            status: row.6,
+            created_at: row.7,
+            updated_at: row.8,
         })
     }
 
@@ -2235,6 +2237,69 @@ impl OrchestratorService {
             completed_at: row.11,
         })
     }
+
+    /// Update a PR's status. When transitioning to `ready_to_merge`, squash all
+    /// FixAgent commits in the branch into a single commit and force-push.
+    pub async fn set_pr_status(&self, pr_id: i64, new_status: String) -> Result<PullRequestSummary> {
+        let new_status = new_status.trim().to_lowercase();
+        if new_status != "open" && new_status != "ready_to_merge" {
+            return Err(OrchestratorError::Config(format!(
+                "Unsupported PR status: {}. Must be 'open' or 'ready_to_merge'.",
+                new_status
+            )));
+        }
+
+        // Fetch the current PR to ensure it exists
+        let row = sqlx::query_as::<_, (i64, i64, String, i64, String, Option<String>, String, chrono::DateTime<Utc>, chrono::DateTime<Utc>)>(
+            r#"
+            SELECT id, project_id, platform, pr_number, pr_url, latest_commit_sha, status, created_at, updated_at
+            FROM pull_requests
+            WHERE id = $1
+            "#,
+        )
+        .bind(pr_id)
+        .fetch_optional(&self.pool)
+        .await?
+        .ok_or_else(|| OrchestratorError::Config(format!("PR not found: {}", pr_id)))?;
+
+        let current_status = &row.6;
+
+        // If transitioning to ready_to_merge, squash fix commits
+        if new_status == "ready_to_merge" && current_status != "ready_to_merge" {
+            let repo_dir = self.get_project_repo_dir_for_pr(pr_id).await?;
+            if let Some(repo_dir) = repo_dir {
+                squash_fix_commits(&repo_dir).await.map_err(|e| {
+                    OrchestratorError::Config(format!("Failed to squash fix commits: {}", e))
+                })?;
+            }
+        }
+
+        // Update status in DB
+        let updated = sqlx::query_as::<_, (i64, i64, String, i64, String, Option<String>, String, chrono::DateTime<Utc>, chrono::DateTime<Utc>)>(
+            r#"
+            UPDATE pull_requests
+            SET status = $2, updated_at = NOW()
+            WHERE id = $1
+            RETURNING id, project_id, platform, pr_number, pr_url, latest_commit_sha, status, created_at, updated_at
+            "#,
+        )
+        .bind(pr_id)
+        .bind(&new_status)
+        .fetch_one(&self.pool)
+        .await?;
+
+        Ok(PullRequestSummary {
+            id: updated.0,
+            project_id: updated.1,
+            platform: updated.2,
+            pr_number: updated.3,
+            pr_url: updated.4,
+            latest_commit_sha: updated.5,
+            status: updated.6,
+            created_at: updated.7,
+            updated_at: updated.8,
+        })
+    }
 }
 
 async fn git_commit_and_push(
@@ -2315,6 +2380,134 @@ async fn git_commit_and_push(
 
     tracing::info!("Pushed fix for issue {} to remote", issue_id);
     Ok(commit_sha)
+}
+
+/// Squash all FixAgent commits on the current branch into a single commit.
+///
+/// Strategy:
+/// 1. Find the merge-base between current HEAD and the upstream default branch
+///    (tries origin/main, then origin/master).
+/// 2. Soft-reset to the merge-base (keeps all changes staged).
+/// 3. Create a single squashed commit.
+/// 4. Force-push to the remote tracking branch.
+async fn squash_fix_commits(repo_dir: &PathBuf) -> std::result::Result<(), String> {
+    // Configure git user (needed for commit)
+    let output = tokio::process::Command::new("git")
+        .args(["config", "user.email", "fixagent@monkeycode.ai"])
+        .current_dir(repo_dir)
+        .output()
+        .await
+        .map_err(|e| format!("git config user.email failed: {}", e))?;
+    if !output.status.success() {
+        return Err(format!("git config user.email failed: {}", String::from_utf8_lossy(&output.stderr)));
+    }
+    let output = tokio::process::Command::new("git")
+        .args(["config", "user.name", "FixAgent"])
+        .current_dir(repo_dir)
+        .output()
+        .await
+        .map_err(|e| format!("git config user.name failed: {}", e))?;
+    if !output.status.success() {
+        return Err(format!("git config user.name failed: {}", String::from_utf8_lossy(&output.stderr)));
+    }
+
+    // Determine the upstream base ref (try origin/main first, then origin/master)
+    let base_ref = {
+        let check_main = tokio::process::Command::new("git")
+            .args(["rev-parse", "--verify", "origin/main"])
+            .current_dir(repo_dir)
+            .output()
+            .await
+            .map_err(|e| format!("git rev-parse origin/main failed: {}", e))?;
+        if check_main.status.success() {
+            "origin/main".to_string()
+        } else {
+            let check_master = tokio::process::Command::new("git")
+                .args(["rev-parse", "--verify", "origin/master"])
+                .current_dir(repo_dir)
+                .output()
+                .await
+                .map_err(|e| format!("git rev-parse origin/master failed: {}", e))?;
+            if check_master.status.success() {
+                "origin/master".to_string()
+            } else {
+                return Err("Could not find origin/main or origin/master as base branch".to_string());
+            }
+        }
+    };
+
+    // Find merge-base
+    let merge_base_output = tokio::process::Command::new("git")
+        .args(["merge-base", "HEAD", &base_ref])
+        .current_dir(repo_dir)
+        .output()
+        .await
+        .map_err(|e| format!("git merge-base failed: {}", e))?;
+    if !merge_base_output.status.success() {
+        return Err(format!("git merge-base failed: {}", String::from_utf8_lossy(&merge_base_output.stderr)));
+    }
+    let merge_base = String::from_utf8_lossy(&merge_base_output.stdout).trim().to_string();
+
+    // Check if there are any commits to squash (compare HEAD to merge-base)
+    let rev_list_output = tokio::process::Command::new("git")
+        .args(["rev-list", "--count", &format!("{}..HEAD", merge_base)])
+        .current_dir(repo_dir)
+        .output()
+        .await
+        .map_err(|e| format!("git rev-list failed: {}", e))?;
+    let commit_count: usize = String::from_utf8_lossy(&rev_list_output.stdout)
+        .trim()
+        .parse()
+        .unwrap_or(0);
+
+    if commit_count <= 1 {
+        tracing::info!("Only {} commit(s) ahead of base — nothing to squash", commit_count);
+        return Ok(());
+    }
+
+    tracing::info!("Squashing {} commits (merge-base: {}, base_ref: {})", commit_count, &merge_base, &base_ref);
+
+    // Soft-reset to the merge-base — keeps all changes staged
+    let output = tokio::process::Command::new("git")
+        .args(["reset", "--soft", &merge_base])
+        .current_dir(repo_dir)
+        .output()
+        .await
+        .map_err(|e| format!("git reset --soft failed: {}", e))?;
+    if !output.status.success() {
+        return Err(format!("git reset --soft failed: {}", String::from_utf8_lossy(&output.stderr)));
+    }
+
+    // Create squashed commit
+    let squash_msg = format!("fix: squashed {} FixAgent commits\n\nAutomated squash by FixAgent before merge.", commit_count);
+    let output = tokio::process::Command::new("git")
+        .args(["commit", "-m", &squash_msg])
+        .current_dir(repo_dir)
+        .output()
+        .await
+        .map_err(|e| format!("git commit (squash) failed: {}", e))?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        if stderr.contains("nothing to commit") {
+            tracing::info!("Nothing to commit after squash reset — branch may already be clean");
+            return Ok(());
+        }
+        return Err(format!("git commit (squash) failed: {}", stderr));
+    }
+
+    // Force-push to remote
+    let output = tokio::process::Command::new("git")
+        .args(["push", "--force-with-lease"])
+        .current_dir(repo_dir)
+        .output()
+        .await
+        .map_err(|e| format!("git push --force-with-lease failed: {}", e))?;
+    if !output.status.success() {
+        return Err(format!("git push --force-with-lease failed: {}", String::from_utf8_lossy(&output.stderr)));
+    }
+
+    tracing::info!("Successfully squashed {} commits and force-pushed", commit_count);
+    Ok(())
 }
 
 fn build_issue_fingerprint(

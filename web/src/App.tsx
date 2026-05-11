@@ -20,6 +20,7 @@ type PullRequestSummary = {
   pr_number: number;
   pr_url: string;
   latest_commit_sha: string | null;
+  status: string;
   created_at: string;
   updated_at: string;
 };
@@ -529,6 +530,31 @@ export default function App() {
     }
   }
 
+  const [pendingPrStatusIds, setPendingPrStatusIds] = useState<number[]>([]);
+
+  async function handleTogglePrStatus(pr: PullRequestSummary) {
+    const newStatus = pr.status === 'ready_to_merge' ? 'open' : 'ready_to_merge';
+    setError(null);
+    setPendingPrStatusIds((ids) => (ids.includes(pr.id) ? ids : [...ids, pr.id]));
+    try {
+      const response = await fetch(`${API_BASE_URL}/prs/${pr.id}/status`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: newStatus }),
+      });
+      if (!response.ok) {
+        throw new Error(await readApiError(response));
+      }
+      if (selectedProjectKey) {
+        await loadPrs(selectedProjectKey);
+      }
+    } catch (err) {
+      setError(toErrorMessage(err));
+    } finally {
+      setPendingPrStatusIds((ids) => ids.filter((id) => id !== pr.id));
+    }
+  }
+
   async function handleUpdateIssueStatus(issueId: number, newStatus: string) {
     setError(null);
     try {
@@ -811,7 +837,25 @@ export default function App() {
                       <span className="brew-chip">Needs Human {summary.needsHuman}</span>
                       <span className="brew-chip">Resolved {summary.resolved}</span>
                     </div>
-                    <div className="brew-card-footer">Updated {formatDateTime(pr.updated_at)}</div>
+                    <div className="brew-card-footer brew-pr-card-footer">
+                      <span className={`brew-pr-status-badge brew-pr-status-${pr.status === 'ready_to_merge' ? 'ready' : 'open'}`}>
+                        {pr.status === 'ready_to_merge' ? 'Ready to Merge' : 'Open'}
+                      </span>
+                      <button
+                        className={`brew-pr-status-toggle ${pr.status === 'ready_to_merge' ? 'brew-pr-status-toggle-reopen' : ''}`}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          void handleTogglePrStatus(pr);
+                        }}
+                        disabled={pendingPrStatusIds.includes(pr.id)}
+                      >
+                        {pendingPrStatusIds.includes(pr.id)
+                          ? 'Squashing...'
+                          : pr.status === 'ready_to_merge'
+                            ? 'Re-open'
+                            : 'Squash & Ready'}
+                      </button>
+                    </div>
                    </div>
                 );
               })}

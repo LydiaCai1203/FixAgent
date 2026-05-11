@@ -59,6 +59,7 @@ pub struct PullRequestSummary {
     pub pr_number: i64,
     pub pr_url: String,
     pub latest_commit_sha: Option<String>,
+    pub status: String,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
