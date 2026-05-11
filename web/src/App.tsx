@@ -304,13 +304,7 @@ export default function App() {
           .filter(([, identity]) => runningPrNumbers.has(identity))
           .filter(([prId]) => {
             if (pendingFixAllPrIds.includes(prId)) return false;
-            const pr = prsRef.current.find((p) => p.id === prId);
-            if (pr) {
-              const hasFixingIssue = projectIssuesRef.current.some(
-                (issue) => issue.pr_number === pr.pr_number && issue.platform === pr.platform && pendingIssueFixIds.includes(issue.id),
-              );
-              if (hasFixingIssue) return false;
-            }
+            if (pendingIssueFixIds.length > 0 && prId === selectedPrId) return false;
             return true;
           })
           .map(([prId]) => prId),
