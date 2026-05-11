@@ -129,6 +129,7 @@ impl FixOrchestrator {
 
         let mut patch = fix_agent.run(FIX_SYSTEM_PROMPT, &prompt).await?;
 
+        patch.file = patch.file.trim().to_string();
         if patch.file != task.issue.file {
             tracing::warn!(
                 "FixAgent returned patch file '{}' but issue file is '{}'; overriding patch file",
