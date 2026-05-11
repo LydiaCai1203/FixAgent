@@ -920,43 +920,41 @@ export default function App() {
                       }
                     }}
                   >
-                      <div className="brew-card-header">
-                       <div>
-                         <div className="brew-card-kicker">{issue.severity}</div>
-                         <strong>{issue.title}</strong>
-                       </div>
-                       <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                         <div className="brew-issue-menu-wrap">
-                           <button
-                             className={`brew-status-dropdown brew-status-${issue.status}`}
-                             onClick={(event) => {
-                               event.stopPropagation();
-                               setOpenIssueMenuId((current) => current === issue.id ? null : issue.id);
-                             }}
-                           >
-                             {issue.status}
-                             <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-                               <polyline points="6 9 12 15 18 9"></polyline>
-                             </svg>
-                           </button>
-                           {openIssueMenuId === issue.id ? (
-                             <div className="brew-issue-menu">
-                               {['open', 'resolved', 'needs_human', 'invalid'].map((statusOption) => (
-                                <button
-                                  key={statusOption}
-                                  className="brew-issue-menu-item"
-                                  onClick={(event) => {
-                                    event.stopPropagation();
-                                    void handleUpdateIssueStatus(issue.id, statusOption);
-                                    setOpenIssueMenuId(null);
-                                  }}
-                                >
-                                  {statusOption}
-                                </button>
-                              ))}
-                             </div>
-                           ) : null}
-                         </div>
+                      {/* Top row: severity badge + status + actions */}
+                      <div className="brew-bug-card-topbar">
+                        <span className={`brew-severity-badge brew-severity-${issue.severity}`}>{issue.severity}</span>
+                        <div className="brew-bug-card-topbar-right">
+                          <div className="brew-issue-menu-wrap">
+                            <button
+                              className={`brew-status-dropdown brew-status-${issue.status}`}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                setOpenIssueMenuId((current) => current === issue.id ? null : issue.id);
+                              }}
+                            >
+                              {issue.status}
+                              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                                <polyline points="6 9 12 15 18 9"></polyline>
+                              </svg>
+                            </button>
+                            {openIssueMenuId === issue.id ? (
+                              <div className="brew-issue-menu">
+                                {['open', 'resolved', 'needs_human', 'invalid'].map((statusOption) => (
+                                 <button
+                                   key={statusOption}
+                                   className="brew-issue-menu-item"
+                                   onClick={(event) => {
+                                     event.stopPropagation();
+                                     void handleUpdateIssueStatus(issue.id, statusOption);
+                                     setOpenIssueMenuId(null);
+                                   }}
+                                 >
+                                   {statusOption}
+                                 </button>
+                               ))}
+                              </div>
+                            ) : null}
+                          </div>
                           <button
                             className="brew-card-delete-btn"
                             onClick={(event) => {
@@ -970,16 +968,30 @@ export default function App() {
                              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
                            </svg>
                          </button>
-                       </div>
+                        </div>
                       </div>
-                    <p className="brew-card-meta">{issue.file_path}:{issue.start_line}-{issue.end_line}</p>
-                     <div className="brew-chip-row">
-                        <span className="brew-chip">Issue #{issue.id}</span>
-                        <span className="brew-chip">PR #{issue.pr_number}</span>
-                        <span className="brew-chip">Confidence {issue.confidence ?? '-'}</span>
+
+                      {/* Title */}
+                      <strong className="brew-bug-card-title">{issue.title}</strong>
+
+                      {/* File location */}
+                      <div className="brew-bug-card-location">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path>
+                          <polyline points="13 2 13 9 20 9"></polyline>
+                        </svg>
+                        <span className="brew-bug-card-filepath">{issue.file_path}</span>
+                        <span className="brew-bug-card-line">L{issue.start_line}{issue.end_line !== issue.start_line ? `-${issue.end_line}` : ''}</span>
                       </div>
-                     <div className="brew-card-footer">
-                       <span>Updated {formatDateTime(issue.updated_at)}</span>
+
+                      {/* Footer: meta + fix button */}
+                      <div className="brew-bug-card-footer">
+                        <div className="brew-bug-card-meta-row">
+                          {issue.confidence !== null ? (
+                            <span className="brew-bug-card-confidence">{issue.confidence}%</span>
+                          ) : null}
+                          <span className="brew-bug-card-time">{formatDateTime(issue.updated_at)}</span>
+                        </div>
                         <div
                           className="brew-fix-action-wrap"
                           onMouseEnter={() => setHoveredFixIssueId(issue.id)}
