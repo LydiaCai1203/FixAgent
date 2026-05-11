@@ -38,19 +38,7 @@ impl PatchValidator {
     ) -> PatchValidation {
         let mut corrections = Vec::new();
 
-        // 1. File path validation
-        if patch.file != issue.file {
-            return PatchValidation {
-                is_valid: false,
-                corrections,
-                reason: Some(format!(
-                    "Patch file '{}' does not match issue file '{}'",
-                    patch.file, issue.file
-                )),
-            };
-        }
-
-        // 2. Line range validation
+        // 1. Line range validation
         if patch.start_line == 0 || patch.end_line == 0 {
             return PatchValidation {
                 is_valid: false,
@@ -176,15 +164,16 @@ mod tests {
     }
 
     #[test]
-    fn rejects_wrong_file() {
+    fn accepts_different_file_path() {
+        // File path validation is handled by the orchestrator (which overrides patch.file),
+        // so the validator no longer rejects mismatched file paths.
         let validator = PatchValidator::new(120);
         let issue = make_issue("src/test.rs", 2, None);
         let patch = make_patch("src/other.rs", 2, 2, "x");
         let content = "a\nb\nc\n";
 
         let result = validator.validate(&issue, &patch, content);
-        assert!(!result.is_valid);
-        assert!(result.reason.unwrap().contains("does not match issue file"));
+        assert!(result.is_valid);
     }
 
     #[test]

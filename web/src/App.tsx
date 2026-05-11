@@ -622,16 +622,7 @@ export default function App() {
       return true;
     }
 
-    if (!selectedPr) {
-      return false;
-    }
-
-    const workflow = latestWorkflowForPr(selectedPr);
-    if (!workflow || workflow.status !== 'running') {
-      return false;
-    }
-
-    return ['open', 'reopened', 'needs_human'].includes(issue.status);
+    return false;
   }
 
   return (
