@@ -317,6 +317,12 @@ export default function App() {
           })
           .map(([prId]) => prId),
       );
+      setPendingFixAllPrIds((current) =>
+        current.filter((prId) => {
+          const identity = prIdentityById.get(prId);
+          return identity ? runningPrNumbers.has(identity) : false;
+        }),
+      );
       setPendingReviewPrIds((current) => current.filter((prId) => !prIdentityById.has(prId) || !runningPrNumbers.has(prIdentityById.get(prId) ?? '')));
     } catch (err) {
       setError(toErrorMessage(err));
@@ -515,7 +521,6 @@ export default function App() {
       setError(toErrorMessage(err));
     } finally {
       isFixingRef.current = false;
-      setPendingFixAllPrIds((current) => current.filter((item) => item !== pr.id));
     }
   }
 
