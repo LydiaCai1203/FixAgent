@@ -97,6 +97,7 @@ export default function App() {
   const [hoveredReviewPrId, setHoveredReviewPrId] = useState<number | null>(null);
   const [selectedIssueId, setSelectedIssueId] = useState<number | null>(null);
   const [openIssueMenuId, setOpenIssueMenuId] = useState<number | null>(null);
+  const [deleteConfirmIssueId, setDeleteConfirmIssueId] = useState<number | null>(null);
 
   const [workflowRuns, setWorkflowRuns] = useState<WorkflowRunSummary[]>([]);
   const [reviewRunningPrIds, setReviewRunningPrIds] = useState<number[]>([]);
@@ -817,17 +818,15 @@ export default function App() {
                              </div>
                            ) : null}
                          </div>
-                         <button
-                           className="brew-card-delete-btn"
-                           onClick={(event) => {
-                             event.stopPropagation();
-                             if (window.confirm(`Delete bug: "${issue.title}"?`)) {
-                               void handleDeleteIssue(issue.id);
-                             }
-                           }}
-                           title="Delete issue"
-                         >
-                           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                          <button
+                            className="brew-card-delete-btn"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              setDeleteConfirmIssueId(issue.id);
+                            }}
+                            title="Delete issue"
+                          >
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                              <polyline points="3 6 5 6 21 6"></polyline>
                              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
                            </svg>
@@ -995,6 +994,31 @@ export default function App() {
                 {pendingIssueFixIds.includes(selectedIssue.id) ? 'Fixing...' : 'Fix'}
               </button>
               <button className="brew-btn-secondary" onClick={() => setSelectedIssueId(null)}>关闭</button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {deleteConfirmIssueId !== null ? (
+        <div className="brew-modal-overlay" onClick={() => setDeleteConfirmIssueId(null)}>
+          <div className="brew-modal" onClick={(e) => e.stopPropagation()}>
+            <h3>确认删除</h3>
+            <p style={{ margin: 0, color: 'var(--text-secondary)', fontSize: 14 }}>
+              确定要删除这个 bug 吗？此操作不可撤销。
+            </p>
+            <div className="brew-modal-actions">
+              <button className="brew-btn-secondary" onClick={() => setDeleteConfirmIssueId(null)}>取消</button>
+              <button
+                className="brew-btn-primary"
+                style={{ backgroundColor: '#e53e3e' }}
+                onClick={() => {
+                  const id = deleteConfirmIssueId;
+                  setDeleteConfirmIssueId(null);
+                  void handleDeleteIssue(id);
+                }}
+              >
+                删除
+              </button>
             </div>
           </div>
         </div>
