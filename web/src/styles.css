@@ -1399,6 +1399,45 @@ button {
   border: 1px solid rgba(201, 223, 114, 0.06);
 }
 
+.brew-code-block {
+  margin: 0;
+  padding: 14px 16px;
+  border-radius: 12px;
+  background: rgba(18, 63, 53, 0.35);
+  border: 1px solid rgba(201, 223, 114, 0.06);
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-secondary);
+  overflow-x: auto;
+  white-space: pre;
+  font-family: monospace;
+}
+
+.brew-commit-link {
+  margin-left: auto;
+  font-family: monospace;
+  font-size: 11px;
+  color: var(--accent);
+  text-decoration: none;
+  padding: 2px 6px;
+  border-radius: 4px;
+  border: 1px solid rgba(201, 223, 114, 0.2);
+}
+
+.brew-commit-link:hover {
+  background: rgba(201, 223, 114, 0.08);
+}
+
+.brew-commit-sha {
+  margin-left: auto;
+  font-family: monospace;
+  font-size: 11px;
+  color: var(--text-muted);
+  padding: 2px 6px;
+  border-radius: 4px;
+  border: 1px solid rgba(201, 223, 114, 0.1);
+}
+
 .brew-issue-code-block {
   margin: 0;
   padding: 16px;

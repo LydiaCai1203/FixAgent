@@ -85,6 +85,9 @@ pub struct IssueSummary {
     pub confidence: Option<i32>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    pub fix_replacement_preview: Option<String>,
+    pub fix_commit_sha: Option<String>,
+    pub pr_url: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
