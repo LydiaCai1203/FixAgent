@@ -840,6 +840,45 @@ button {
   gap: 8px;
 }
 
+.brew-bug-card-actions {
+  margin-top: 12px;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.brew-fix-action {
+  min-width: 84px;
+  height: 32px;
+  padding: 0 12px;
+  border: 1px solid rgba(127, 198, 184, 0.28);
+  border-radius: 10px;
+  background: rgba(44, 198, 168, 0.08);
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.brew-fix-action:hover {
+  background: rgba(44, 198, 168, 0.16);
+}
+
+.brew-fix-action:disabled,
+.brew-btn-primary:disabled,
+.brew-btn-secondary:disabled {
+  opacity: 0.72;
+  cursor: default;
+}
+
+.brew-fix-action-primary {
+  background: var(--accent-primary);
+  color: #0a1a14;
+  border-color: transparent;
+}
+
+.brew-fix-action-primary:hover {
+  background: #ddeb8b;
+}
+
 .brew-bug-card-grid {
   grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
 }
