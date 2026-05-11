@@ -1984,6 +1984,19 @@ impl OrchestratorService {
         .execute(&self.pool)
         .await?;
 
+        sqlx::query(
+            r#"
+            UPDATE issues
+            SET status = 'open',
+                claimed_by = NULL,
+                claimed_at = NULL,
+                updated_at = NOW()
+            WHERE status = 'claimed'
+            "#,
+        )
+        .execute(&self.pool)
+        .await?;
+
         Ok(())
     }
 
