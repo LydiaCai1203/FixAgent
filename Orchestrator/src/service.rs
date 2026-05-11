@@ -2418,37 +2418,50 @@ fn apply_workspace_env_overrides(
     config: &mut reviewagent::config::Config,
 ) -> Result<()> {
     let env_path = repo_dir.join("env");
-    if !env_path.exists() {
-        return Ok(());
+    if env_path.exists() {
+        let content = std::fs::read_to_string(&env_path)?;
+        for raw_line in content.lines() {
+            let line = raw_line.trim();
+            if line.is_empty() || line.starts_with('#') {
+                continue;
+            }
+
+            let Some((key, value)) = line.split_once('=') else {
+                continue;
+            };
+
+            let value = value.trim().trim_matches('"').trim_matches('\'').to_string();
+            match key.trim().to_ascii_lowercase().as_str() {
+                "baseurl" => {
+                    config.llm.base_url = Some(value.clone());
+                    config.llm_lite.base_url = Some(value);
+                }
+                "apikey" => {
+                    config.llm.api_key = Some(value.clone());
+                    config.llm_lite.api_key = Some(value);
+                }
+                "model" => {
+                    config.llm.model = value.clone();
+                    config.llm_lite.model = value;
+                }
+                _ => {}
+            }
+        }
     }
 
-    let content = std::fs::read_to_string(&env_path)?;
-    for raw_line in content.lines() {
-        let line = raw_line.trim();
-        if line.is_empty() || line.starts_with('#') {
-            continue;
-        }
+    if let Ok(value) = std::env::var("OPENAI_BASE_URL") {
+        config.llm.base_url = Some(value.clone());
+        config.llm_lite.base_url = Some(value);
+    }
 
-        let Some((key, value)) = line.split_once('=') else {
-            continue;
-        };
+    if let Ok(value) = std::env::var("OPENAI_API_KEY") {
+        config.llm.api_key = Some(value.clone());
+        config.llm_lite.api_key = Some(value);
+    }
 
-        let value = value.trim().trim_matches('"').trim_matches('\'').to_string();
-        match key.trim().to_ascii_lowercase().as_str() {
-            "baseurl" => {
-                config.llm.base_url = Some(value.clone());
-                config.llm_lite.base_url = Some(value);
-            }
-            "apikey" => {
-                config.llm.api_key = Some(value.clone());
-                config.llm_lite.api_key = Some(value);
-            }
-            "model" => {
-                config.llm.model = value.clone();
-                config.llm_lite.model = value;
-            }
-            _ => {}
-        }
+    if let Ok(value) = std::env::var("MODEL") {
+        config.llm.model = value.clone();
+        config.llm_lite.model = value;
     }
 
     Ok(())
