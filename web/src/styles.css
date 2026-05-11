@@ -509,6 +509,125 @@ button {
   position: relative;
   display: flex;
   flex-direction: column;
+  gap: 12px;
+}
+
+.brew-bug-card-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.brew-bug-card-topbar-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.brew-severity-badge {
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 8px;
+  border-radius: 6px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.brew-severity-critical {
+  background: rgba(255, 90, 90, 0.12);
+  color: #ff7a7a;
+  border: 1px solid rgba(255, 90, 90, 0.2);
+}
+
+.brew-severity-warning {
+  background: rgba(216, 232, 111, 0.1);
+  color: var(--warning);
+  border: 1px solid rgba(216, 232, 111, 0.18);
+}
+
+.brew-severity-info {
+  background: rgba(100, 180, 255, 0.1);
+  color: #7ac4ff;
+  border: 1px solid rgba(100, 180, 255, 0.18);
+}
+
+.brew-bug-card-title {
+  font-size: 14px;
+  line-height: 1.4;
+  color: var(--text-primary);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.brew-bug-card-location {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-muted);
+  font-size: 11px;
+  min-width: 0;
+}
+
+.brew-bug-card-location svg {
+  flex-shrink: 0;
+  opacity: 0.5;
+}
+
+.brew-bug-card-filepath {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: monospace;
+  font-size: 11px;
+}
+
+.brew-bug-card-line {
+  flex-shrink: 0;
+  color: var(--text-subtle);
+  font-family: monospace;
+  font-size: 11px;
+}
+
+.brew-bug-card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: auto;
+  padding-top: 10px;
+  border-top: 1px solid rgba(201, 223, 114, 0.06);
+}
+
+.brew-bug-card-meta-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.brew-bug-card-confidence {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 32px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 6px;
+  background: rgba(201, 223, 114, 0.08);
+  border: 1px solid rgba(201, 223, 114, 0.12);
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.brew-bug-card-time {
+  color: var(--text-subtle);
 }
 
 .brew-issue-menu-wrap {
@@ -761,7 +880,7 @@ button {
 }
 
 .brew-bug-card strong {
-  font-size: 15px;
+  font-size: 14px;
 }
 
 .brew-card-mark {
@@ -804,8 +923,7 @@ button {
 }
 
 .brew-bug-card .brew-card-meta {
-  margin-top: 8px;
-  color: var(--text-muted);
+  display: none;
 }
 
 .brew-chip-row {
@@ -846,9 +964,7 @@ button {
 }
 
 .brew-bug-card .brew-chip {
-  min-height: 24px;
-  font-size: 10px;
-  color: var(--text-subtle);
+  display: none;
 }
 
 .brew-card-footer {
@@ -858,16 +974,11 @@ button {
 }
 
 .brew-bug-card .brew-chip-row {
-  margin-top: 12px;
-  gap: 8px;
+  display: none;
 }
 
 .brew-bug-card .brew-card-footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-top: auto;
-  padding-top: 8px;
+  display: none;
 }
 
 .brew-card-header {
@@ -878,7 +989,7 @@ button {
 }
 
 .brew-bug-card .brew-card-header {
-  flex-shrink: 0;
+  display: none;
 }
 
 .brew-card-delete-btn {
