@@ -582,10 +582,16 @@ export default function App() {
   function fixAllDetailsForPr(pr: PullRequestSummary) {
     const workflow = latestWorkflowForPr(pr);
     const relatedRounds = workflow ? workflowRounds.filter((round) => round.workflow_run_id === workflow.id) : [];
+    const completedRounds = relatedRounds.filter((round) => round.status === 'completed').length;
+    const runningRound = relatedRounds.find((round) => round.status === 'running') ?? null;
+    const totalRounds = workflow?.max_rounds ?? relatedRounds.length;
 
     return {
       workflow,
       relatedRounds,
+      completedRounds,
+      runningRound,
+      totalRounds,
       isPendingSubmission: pendingFixAllPrIds.includes(pr.id),
     };
   }
@@ -823,17 +829,37 @@ export default function App() {
                       onClick={() => void handleFixAll(selectedPr)}
                       disabled={pendingFixAllPrIds.includes(selectedPr.id) || reviewRunningPrIds.includes(selectedPr.id) || pendingReviewPrIds.includes(selectedPr.id)}
                     >
-                      {pendingFixAllPrIds.includes(selectedPr.id) ? <span className="brew-fix-spinner" aria-hidden="true" /> : 'Fix All'}
+                      {pendingFixAllPrIds.includes(selectedPr.id) ? (() => {
+                        const { completedRounds, totalRounds } = fixAllDetailsForPr(selectedPr);
+                        return (
+                          <span className="brew-fix-action-loading">
+                            <span className="brew-fix-spinner" aria-hidden="true" />
+                            <span>{totalRounds > 0 ? `${completedRounds}/${totalRounds}` : '...'}</span>
+                          </span>
+                        );
+                      })() : 'Fix All'}
                     </button>
                     {hoveredFixAllPrId === selectedPr.id ? (() => {
-                      const { workflow, relatedRounds, isPendingSubmission } = fixAllDetailsForPr(selectedPr);
+                      const { workflow, relatedRounds, completedRounds, runningRound, totalRounds, isPendingSubmission } = fixAllDetailsForPr(selectedPr);
+                      const progressLabel = totalRounds > 0 ? `${completedRounds}/${totalRounds}` : '0/0';
+                      const progressWidth = totalRounds > 0 ? `${(completedRounds / totalRounds) * 100}%` : '0%';
                       return (
                         <div className="brew-fix-popover">
+                          <div className="brew-fix-progress-header">
+                            <strong>Progress</strong>
+                            <span>{progressLabel}</span>
+                          </div>
                           {isPendingSubmission ? <div className="brew-review-popover-line">Fix All task is running...</div> : null}
                           {!workflow && !isPendingSubmission ? <div className="brew-review-popover-line">No Fix All task has started yet.</div> : null}
                           {workflow ? (
                             <>
+                              <div className="brew-fix-progress-bar">
+                                <div className="brew-fix-progress-bar-fill" style={{ width: progressWidth }} />
+                              </div>
                               <div className="brew-review-popover-line"><strong>Status:</strong> {workflow.status}</div>
+                              <div className="brew-review-popover-line"><strong>Completed:</strong> {completedRounds}</div>
+                              <div className="brew-review-popover-line"><strong>Remaining:</strong> {Math.max(totalRounds - completedRounds, 0)}</div>
+                              <div className="brew-review-popover-line"><strong>Current:</strong> {runningRound ? `Round ${runningRound.round_number}` : (workflow.status === 'running' ? 'Waiting for next round' : 'Done')}</div>
                               <div className="brew-review-popover-line"><strong>Started:</strong> {formatDateTime(workflow.started_at)}</div>
                               <div className="brew-review-popover-line"><strong>Completed:</strong> {workflow.completed_at ? formatDateTime(workflow.completed_at) : 'Running'}</div>
                               <div className="brew-review-popover-line"><strong>Summary:</strong> {workflow.summary ?? 'No workflow summary yet.'}</div>
