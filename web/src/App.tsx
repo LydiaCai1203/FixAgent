@@ -786,7 +786,7 @@ export default function App() {
                     onClick={() => void handleFixAll(selectedPr)}
                     disabled={pendingFixAllPrIds.includes(selectedPr.id) || reviewRunningPrIds.includes(selectedPr.id) || pendingReviewPrIds.includes(selectedPr.id)}
                   >
-                    {pendingFixAllPrIds.includes(selectedPr.id) ? <span className="brew-pr-run-spinner" aria-hidden="true" /> : 'Fix All'}
+                    {pendingFixAllPrIds.includes(selectedPr.id) ? <span className="brew-fix-spinner" aria-hidden="true" /> : 'Fix All'}
                   </button>
                 </div>
               </div>
