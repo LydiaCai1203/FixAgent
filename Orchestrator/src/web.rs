@@ -94,7 +94,7 @@ pub async fn serve_http(service: OrchestratorService, host: String, port: u16) -
         .route("/prs", get(list_prs).post(create_pr))
         .route("/reviews", post(start_review))
         .route("/issues", get(list_issues))
-        .route("/issues/{issue_id}", patch(update_issue_status))
+        .route("/issues/{issue_id}", patch(update_issue_status).delete(delete_issue))
         .route("/issues/{issue_id}/fix", post(start_issue_fix))
         .route("/pr-stats", get(pr_stats))
         .route("/workflows", get(list_workflows).post(start_workflow))
@@ -203,6 +203,14 @@ async fn update_issue_status(
         .update_issue_status(issue_id, request.status)
         .await?;
     Ok(Json(serde_json::json!(result)))
+}
+
+async fn delete_issue(
+    State(service): State<OrchestratorService>,
+    Path(issue_id): Path<i64>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    service.delete_issue(issue_id).await?;
+    Ok(Json(serde_json::json!({ "deleted": true })))
 }
 
 async fn start_issue_fix(

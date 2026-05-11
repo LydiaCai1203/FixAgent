@@ -515,6 +515,21 @@ export default function App() {
     }
   }
 
+  async function handleDeleteIssue(issueId: number) {
+    setError(null);
+    try {
+      const response = await fetch(`${API_BASE_URL}/issues/${issueId}`, {
+        method: 'DELETE',
+      });
+      if (!response.ok) {
+        throw new Error(await readApiError(response));
+      }
+      await loadProjectIssues(selectedProjectKey ?? '', selectedPr);
+    } catch (err) {
+      setError(toErrorMessage(err));
+    }
+  }
+
   function workflowStatusForPr(pr: PullRequestSummary) {
     return workflowRuns.find((item) => item.platform === pr.platform && item.pr_number === pr.pr_number) ?? null;
   }
@@ -727,13 +742,27 @@ export default function App() {
                 <div>
                   <h3>Bug Pool</h3>
                 </div>
-                <button
-                  className="brew-fix-action brew-fix-action-primary"
-                  onClick={() => void handleFixAll(selectedPr)}
-                  disabled={pendingFixAllPrIds.includes(selectedPr.id) || reviewRunningPrIds.includes(selectedPr.id) || pendingReviewPrIds.includes(selectedPr.id)}
-                >
-                  {pendingFixAllPrIds.includes(selectedPr.id) ? 'Fixing...' : 'Fix All'}
-                </button>
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                  <button
+                    className="brew-clear-btn"
+                    onClick={() => {
+                      if (projectIssues.length === 0) return;
+                      if (window.confirm(`Clear all ${projectIssues.length} bugs?`)) {
+                        void Promise.all(projectIssues.map((issue) => handleDeleteIssue(issue.id)));
+                      }
+                    }}
+                    disabled={projectIssues.length === 0 || pendingIssueFixIds.length > 0 || pendingFixAllPrIds.length > 0}
+                  >
+                    Clear
+                  </button>
+                  <button
+                    className="brew-fix-action brew-fix-action-primary"
+                    onClick={() => void handleFixAll(selectedPr)}
+                    disabled={pendingFixAllPrIds.includes(selectedPr.id) || reviewRunningPrIds.includes(selectedPr.id) || pendingReviewPrIds.includes(selectedPr.id)}
+                  >
+                    {pendingFixAllPrIds.includes(selectedPr.id) ? 'Fixing...' : 'Fix All'}
+                  </button>
+                </div>
               </div>
 
               <div className="brew-card-grid brew-bug-card-grid">
@@ -751,43 +780,60 @@ export default function App() {
                       }
                     }}
                   >
-                     <div className="brew-card-header">
+                      <div className="brew-card-header">
                        <div>
                          <div className="brew-card-kicker">{issue.severity}</div>
                          <strong>{issue.title}</strong>
                        </div>
-                       <div className="brew-issue-menu-wrap">
+                       <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                         <div className="brew-issue-menu-wrap">
+                           <button
+                             className={`brew-status-dropdown brew-status-${issue.status}`}
+                             onClick={(event) => {
+                               event.stopPropagation();
+                               setOpenIssueMenuId((current) => current === issue.id ? null : issue.id);
+                             }}
+                           >
+                             {issue.status}
+                             <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                               <polyline points="6 9 12 15 18 9"></polyline>
+                             </svg>
+                           </button>
+                           {openIssueMenuId === issue.id ? (
+                             <div className="brew-issue-menu">
+                               {['open', 'resolved', 'needs_human', 'invalid'].map((statusOption) => (
+                                <button
+                                  key={statusOption}
+                                  className="brew-issue-menu-item"
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    void handleUpdateIssueStatus(issue.id, statusOption);
+                                    setOpenIssueMenuId(null);
+                                  }}
+                                >
+                                  {statusOption}
+                                </button>
+                              ))}
+                             </div>
+                           ) : null}
+                         </div>
                          <button
-                           className={`brew-status-dropdown brew-status-${issue.status}`}
+                           className="brew-card-delete-btn"
                            onClick={(event) => {
                              event.stopPropagation();
-                             setOpenIssueMenuId((current) => current === issue.id ? null : issue.id);
+                             if (window.confirm(`Delete bug: "${issue.title}"?`)) {
+                               void handleDeleteIssue(issue.id);
+                             }
                            }}
+                           title="Delete issue"
                          >
-                           {issue.status}
-                           <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-                             <polyline points="6 9 12 15 18 9"></polyline>
+                           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                             <polyline points="3 6 5 6 21 6"></polyline>
+                             <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
                            </svg>
                          </button>
-                         {openIssueMenuId === issue.id ? (
-                           <div className="brew-issue-menu">
-                             {['open', 'resolved', 'needs_human', 'invalid'].map((statusOption) => (
-                               <button
-                                 key={statusOption}
-                                 className="brew-issue-menu-item"
-                                 onClick={(event) => {
-                                   event.stopPropagation();
-                                   void handleUpdateIssueStatus(issue.id, statusOption);
-                                   setOpenIssueMenuId(null);
-                                 }}
-                               >
-                                 {statusOption}
-                               </button>
-                             ))}
-                           </div>
-                         ) : null}
                        </div>
-                     </div>
+                      </div>
                     <p className="brew-card-meta">{issue.file_path}:{issue.start_line}-{issue.end_line}</p>
                      <div className="brew-chip-row">
                        <span className="brew-chip">PR #{issue.pr_number}</span>

@@ -465,6 +465,14 @@ impl OrchestratorService {
         Ok(row)
     }
 
+    pub async fn delete_issue(&self, issue_id: i64) -> Result<()> {
+        sqlx::query("DELETE FROM issues WHERE id = $1")
+            .bind(issue_id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
     pub async fn list_workflows(
         &self,
         project_key: Option<String>,

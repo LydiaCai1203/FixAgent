@@ -507,6 +507,8 @@ button {
   background: linear-gradient(180deg, rgba(17, 60, 51, 0.96), rgba(13, 45, 38, 0.98));
   cursor: pointer;
   position: relative;
+  display: flex;
+  flex-direction: column;
 }
 
 .brew-issue-menu-wrap {
@@ -844,6 +846,69 @@ button {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  margin-top: auto;
+  padding-top: 8px;
+}
+
+.brew-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.brew-bug-card .brew-card-header {
+  flex-shrink: 0;
+}
+
+.brew-card-delete-btn {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid rgba(255, 122, 122, 0.2);
+  border-radius: 8px;
+  background: rgba(255, 122, 122, 0.06);
+  color: #ff7a7a;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: all 0.15s ease;
+}
+
+.brew-card-delete-btn:hover {
+  background: rgba(255, 122, 122, 0.15);
+  border-color: rgba(255, 122, 122, 0.4);
+}
+
+.brew-card-delete-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.brew-clear-btn {
+  min-width: 80px;
+  height: 32px;
+  padding: 0 12px;
+  border: 1px solid rgba(255, 122, 122, 0.28);
+  border-radius: 10px;
+  background: rgba(255, 122, 122, 0.08);
+  color: #ff7a7a;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.brew-clear-btn:hover {
+  background: rgba(255, 122, 122, 0.18);
+  border-color: rgba(255, 122, 122, 0.5);
+}
+
+.brew-clear-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }
 
 .brew-fix-action {
