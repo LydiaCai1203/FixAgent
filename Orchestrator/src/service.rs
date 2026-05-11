@@ -1389,76 +1389,77 @@ impl OrchestratorService {
 
         tx.commit().await?;
 
-        let runner = FixRunner::new(repo_dir)
-            .await
-            .map_err(|e| OrchestratorError::Config(e.to_string()))?;
-
-        let task = FixTask {
-            issue_id: Some(issue_id),
-            issue_index: 1,
-            issue: reviewagent::llm::Issue {
-                severity: parse_severity(&severity),
-                file: file_path,
-                line: start_line as usize,
-                end_line: Some(end_line as usize),
-                title,
-                description,
-                suggestion,
-                suggestion_code,
-                original_code,
-                confidence: confidence.map(|v| v as u8),
-            },
-        };
-
-        let fix_result = runner
-            .run_task(task, dry_run)
-            .await
-            .map_err(|e| OrchestratorError::Config(e.to_string()))?;
-
-        let fix_status = map_fix_status(&fix_result.status).to_string();
-        let issue_status = map_issue_status(&fix_result.status).to_string();
-
-        let mut tx = self.pool.begin().await?;
-
-        let fix_run_id: i64 = sqlx::query_scalar(
-            r#"
-            INSERT INTO fix_runs (issue_id, status, summary, rationale, verification_steps, replacement_preview)
-            VALUES ($1, $2, $3, $4, $5, $6)
-            RETURNING id
-            "#,
-        )
-        .bind(issue_id)
-        .bind(&fix_status)
-        .bind(&fix_result.summary)
-        .bind(&fix_result.rationale)
-        .bind(serde_json::to_value(&fix_result.verification_steps)?)
-        .bind(&fix_result.replacement_preview)
-        .fetch_one(&mut *tx)
-        .await?;
-
-        sqlx::query(
-            r#"
-            UPDATE issues
-            SET status = $2,
-                updated_at = NOW()
-            WHERE id = $1
-            "#,
-        )
-        .bind(issue_id)
-        .bind(&issue_status)
-        .execute(&mut *tx)
-        .await?;
-
-        tx.commit().await?;
-
-        Ok(RunFixResult {
+        self.execute_fix_for_issue_data(
+            repo_dir,
             issue_id,
             pull_request_id,
-            fix_run_id,
-            issue_status,
-            fix_status,
-            processed_at: Utc::now(),
-        })
+            severity,
+            file_path,
+            start_line,
+            end_line,
+            title,
+            description,
+            suggestion,
+            suggestion_code,
+            original_code,
+            confidence,
+            dry_run,
+        )
+        .await
+    }
+
+    pub async fn start_issue_fix_run(
+        &self,
+        issue_id: i64,
+        repo_dir: PathBuf,
+        claimed_by: String,
+        dry_run: bool,
+    ) -> Result<i64> {
+        let (project_key, project_name, _platform, _pr_number, pr_url) = self.issue_workflow_context(issue_id).await?;
+        let workflow_run_id = self
+            .start_workflow(project_key.clone(), project_name, pr_url, 1)
+            .await?;
+
+        let background_service = self.clone();
+        tokio::spawn(async move {
+            if let Err(error) = background_service
+                .execute_issue_fix_run(workflow_run_id, issue_id, repo_dir, claimed_by, dry_run)
+                .await
+            {
+                let _ = background_service
+                    .mark_workflow_failed(workflow_run_id, &error.to_string())
+                    .await;
+            }
+        });
+        Ok(workflow_run_id)
+    }
+
+    pub async fn start_pr_fix_all_run(
+        &self,
+        pr_id: i64,
+        repo_dir: PathBuf,
+        claimed_by: String,
+        dry_run: bool,
+    ) -> Result<i64> {
+        let (project_key, project_name, _platform, _pr_number, pr_url) = self.pr_workflow_context(pr_id).await?;
+        let issue_ids = self.open_issue_ids_for_pr(pr_id).await?;
+        let workflow_run_id = self
+            .start_workflow(project_key.clone(), project_name, pr_url, issue_ids.len().max(1) as i32)
+            .await?;
+
+        let background_service = self.clone();
+        tokio::spawn(async move {
+            if let Err(error) = background_service
+                .execute_pr_fix_all_run(workflow_run_id, pr_id, repo_dir, claimed_by, dry_run)
+                .await
+            {
+                let _ = background_service
+                    .mark_workflow_failed(workflow_run_id, &error.to_string())
+                    .await;
+            }
+        });
+
+        Ok(workflow_run_id)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -1570,6 +1571,309 @@ impl OrchestratorService {
         Ok(count)
     }
 
+    async fn execute_issue_fix_run(
+        &self,
+        workflow_run_id: i64,
+        issue_id: i64,
+        repo_dir: PathBuf,
+        claimed_by: String,
+        dry_run: bool,
+    ) -> Result<RunFixResult> {
+        let (_project_key, _project_name, _platform, _pr_number, _pr_url) = self.issue_workflow_context(issue_id).await?;
+
+        sqlx::query(
+            r#"
+            INSERT INTO workflow_rounds (workflow_run_id, round_number, status, summary)
+            VALUES ($1, 1, 'running', $2)
+            ON CONFLICT (workflow_run_id, round_number)
+            DO UPDATE SET status = EXCLUDED.status, summary = EXCLUDED.summary, completed_at = NULL
+            "#,
+        )
+        .bind(workflow_run_id)
+        .bind(format!("FixAgent is processing issue {}.", issue_id))
+        .execute(&self.pool)
+        .await?;
+
+        self.update_workflow_progress(
+            workflow_run_id,
+            Some(&format!("FixAgent is processing issue {}.", issue_id)),
+            Some(1),
+            &format!("FixAgent is processing issue {}.", issue_id),
+        )
+        .await?;
+
+        let fix = self
+            .run_fix_for_issue(repo_dir, issue_id, claimed_by, dry_run)
+            .await?;
+
+        let summary = format!(
+            "FixAgent processed issue {} with issue status {} and fix status {}.",
+            fix.issue_id, fix.issue_status, fix.fix_status
+        );
+
+        sqlx::query(
+            r#"
+            UPDATE workflow_rounds
+            SET issue_id = $3,
+                fix_run_id = $4,
+                status = 'completed',
+                stop_reason = 'issue_fix_completed',
+                summary = $5,
+                completed_at = NOW()
+            WHERE workflow_run_id = $1 AND round_number = $2
+            "#,
+        )
+        .bind(workflow_run_id)
+        .bind(1)
+        .bind(fix.issue_id)
+        .bind(fix.fix_run_id)
+        .bind(&summary)
+        .execute(&self.pool)
+        .await?;
+
+        self.finish_workflow_run(
+            workflow_run_id,
+            "completed",
+            "issue_fix_completed",
+            Some(&summary),
+        )
+        .await?;
+        Ok(fix)
+    }
+
+    async fn execute_pr_fix_all_run(
+        &self,
+        workflow_run_id: i64,
+        pr_id: i64,
+        repo_dir: PathBuf,
+        claimed_by: String,
+        dry_run: bool,
+    ) -> Result<()> {
+        let (project_key, _project_name, platform, pr_number, _pr_url) = self.pr_workflow_context(pr_id).await?;
+
+        let issue_ids = self.open_issue_ids_for_pr(pr_id).await?;
+        if issue_ids.is_empty() {
+            self.finish_workflow_run(
+                workflow_run_id,
+                "completed",
+                "no_open_issues",
+                Some("Fix All skipped because this PR has no open issues."),
+            )
+            .await?;
+            return Ok(());
+        }
+
+        let mut completed = 0usize;
+        for (index, issue_id) in issue_ids.iter().enumerate() {
+            let round_number = (index + 1) as i32;
+            let round_summary = format!("FixAgent is processing issue {} ({}/{}).", issue_id, index + 1, issue_ids.len());
+
+            sqlx::query(
+                r#"
+                INSERT INTO workflow_rounds (workflow_run_id, round_number, status, summary)
+                VALUES ($1, $2, 'running', $3)
+                "#,
+            )
+            .bind(workflow_run_id)
+            .bind(round_number)
+            .bind(&round_summary)
+            .execute(&self.pool)
+            .await?;
+
+            self.update_workflow_progress(
+                workflow_run_id,
+                Some(&round_summary),
+                Some(round_number),
+                &round_summary,
+            )
+            .await?;
+
+            let fix = self
+                .run_fix_for_issue(repo_dir.clone(), *issue_id, claimed_by.clone(), dry_run)
+                .await?;
+
+            let summary = format!(
+                "FixAgent processed issue {} with issue status {} and fix status {}.",
+                fix.issue_id, fix.issue_status, fix.fix_status
+            );
+
+            sqlx::query(
+                r#"
+                UPDATE workflow_rounds
+                SET issue_id = $3,
+                    fix_run_id = $4,
+                    status = 'completed',
+                    stop_reason = 'issue_fix_completed',
+                    summary = $5,
+                    completed_at = NOW()
+                WHERE workflow_run_id = $1 AND round_number = $2
+                "#,
+            )
+            .bind(workflow_run_id)
+            .bind(round_number)
+            .bind(fix.issue_id)
+            .bind(fix.fix_run_id)
+            .bind(&summary)
+            .execute(&self.pool)
+            .await?;
+
+            completed += 1;
+        }
+
+        let summary = format!("Fix All processed {} open issues for PR #{} on {}.", completed, pr_number, platform);
+        self.finish_workflow_run(
+            workflow_run_id,
+            "completed",
+            "fix_all_completed",
+            Some(&summary),
+        )
+        .await?;
+
+        let _ = project_key;
+
+        Ok(())
+    }
+
+    async fn run_fix_for_issue(
+        &self,
+        repo_dir: PathBuf,
+        issue_id: i64,
+        claimed_by: String,
+        dry_run: bool,
+    ) -> Result<RunFixResult> {
+        let mut tx = self.pool.begin().await?;
+
+        let row = sqlx::query_as::<_, (i64, i64, String, String, i64, i64, String, String, String, Option<String>, Option<String>, Option<i32>)>(
+            r#"
+            UPDATE issues i
+            SET status = 'claimed',
+                claimed_by = $1,
+                claimed_at = NOW(),
+                updated_at = NOW()
+            WHERE i.id = $2
+              AND i.status IN ('open', 'reopened')
+            RETURNING i.id, i.pull_request_id, i.severity, i.file_path, i.start_line, i.end_line, i.title, i.description, i.suggestion, i.suggestion_code, i.original_code, i.confidence
+            "#,
+        )
+        .bind(&claimed_by)
+        .bind(issue_id)
+        .fetch_optional(&mut *tx)
+        .await?;
+
+        let (issue_id, pull_request_id, severity, file_path, start_line, end_line, title, description, suggestion, suggestion_code, original_code, confidence) =
+            row.ok_or_else(|| OrchestratorError::Config(format!("No open issue found for issue_id={}", issue_id)))?;
+
+        tx.commit().await?;
+
+        self.execute_fix_for_issue_data(
+            repo_dir,
+            issue_id,
+            pull_request_id,
+            severity,
+            file_path,
+            start_line,
+            end_line,
+            title,
+            description,
+            suggestion,
+            suggestion_code,
+            original_code,
+            confidence,
+            dry_run,
+        )
+        .await
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn execute_fix_for_issue_data(
+        &self,
+        repo_dir: PathBuf,
+        issue_id: i64,
+        pull_request_id: i64,
+        severity: String,
+        file_path: String,
+        start_line: i64,
+        end_line: i64,
+        title: String,
+        description: String,
+        suggestion: String,
+        suggestion_code: Option<String>,
+        original_code: Option<String>,
+        confidence: Option<i32>,
+        dry_run: bool,
+    ) -> Result<RunFixResult> {
+        let runner = FixRunner::new(repo_dir)
+            .await
+            .map_err(|e| OrchestratorError::Config(e.to_string()))?;
+
+        let task = FixTask {
+            issue_id: Some(issue_id),
+            issue_index: 1,
+            issue: reviewagent::llm::Issue {
+                severity: parse_severity(&severity),
+                file: file_path,
+                line: start_line as usize,
+                end_line: Some(end_line as usize),
+                title,
+                description,
+                suggestion,
+                suggestion_code,
+                original_code,
+                confidence: confidence.map(|v| v as u8),
+            },
+        };
+
+        let fix_result = runner
+            .run_task(task, dry_run)
+            .await
+            .map_err(|e| OrchestratorError::Config(e.to_string()))?;
+
+        let fix_status = map_fix_status(&fix_result.status).to_string();
+        let issue_status = map_issue_status(&fix_result.status).to_string();
+
+        let mut tx = self.pool.begin().await?;
+
+        let fix_run_id: i64 = sqlx::query_scalar(
+            r#"
+            INSERT INTO fix_runs (issue_id, status, summary, rationale, verification_steps, replacement_preview)
+            VALUES ($1, $2, $3, $4, $5, $6)
+            RETURNING id
+            "#,
+        )
+        .bind(issue_id)
+        .bind(&fix_status)
+        .bind(&fix_result.summary)
+        .bind(&fix_result.rationale)
+        .bind(serde_json::to_value(&fix_result.verification_steps)?)
+        .bind(&fix_result.replacement_preview)
+        .fetch_one(&mut *tx)
+        .await?;
+
+        sqlx::query(
+            r#"
+            UPDATE issues
+            SET status = $2,
+                updated_at = NOW()
+            WHERE id = $1
+            "#,
+        )
+        .bind(issue_id)
+        .bind(&issue_status)
+        .execute(&mut *tx)
+        .await?;
+
+        tx.commit().await?;
+
+        Ok(RunFixResult {
+            issue_id,
+            pull_request_id,
+            fix_run_id,
+            issue_status,
+            fix_status,
+            processed_at: Utc::now(),
+        })
+    }
+
     async fn recover_interrupted_runs(&self) -> Result<()> {
         sqlx::query(
             r#"
@@ -1598,6 +1902,67 @@ impl OrchestratorService {
         .await?;
 
         Ok(())
+    }
+
+    async fn issue_workflow_context(
+        &self,
+        issue_id: i64,
+    ) -> Result<(String, String, String, i64, String)> {
+        sqlx::query_as::<_, (String, String, String, i64, String)>(
+            r#"
+            SELECT p.project_key, p.project_name, pr.platform, pr.pr_number, pr.pr_url
+            FROM issues i
+            JOIN pull_requests pr ON pr.id = i.pull_request_id
+            JOIN projects p ON p.id = pr.project_id
+            WHERE i.id = $1
+            "#,
+        )
+        .bind(issue_id)
+        .fetch_optional(&self.pool)
+        .await?
+        .ok_or_else(|| OrchestratorError::Config(format!("Issue not found: {}", issue_id)))
+    }
+
+    async fn pr_workflow_context(
+        &self,
+        pr_id: i64,
+    ) -> Result<(String, String, String, i64, String)> {
+        sqlx::query_as::<_, (String, String, String, i64, String)>(
+            r#"
+            SELECT p.project_key, p.project_name, pr.platform, pr.pr_number, pr.pr_url
+            FROM pull_requests pr
+            JOIN projects p ON p.id = pr.project_id
+            WHERE pr.id = $1
+            "#,
+        )
+        .bind(pr_id)
+        .fetch_optional(&self.pool)
+        .await?
+        .ok_or_else(|| OrchestratorError::Config(format!("PR not found: {}", pr_id)))
+    }
+
+    async fn open_issue_ids_for_pr(&self, pr_id: i64) -> Result<Vec<i64>> {
+        let rows = sqlx::query_scalar::<_, i64>(
+            r#"
+            SELECT i.id
+            FROM issues i
+            WHERE i.pull_request_id = $1
+              AND i.status = 'open'
+            ORDER BY
+              CASE i.severity
+                WHEN 'critical' THEN 1
+                WHEN 'warning' THEN 2
+                ELSE 3
+              END,
+              COALESCE(i.confidence, 0) DESC,
+              i.updated_at DESC
+            "#,
+        )
+        .bind(pr_id)
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(rows)
     }
 
     async fn finish_workflow_run(

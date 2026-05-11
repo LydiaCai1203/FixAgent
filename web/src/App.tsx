@@ -99,6 +99,8 @@ export default function App() {
   const [reviewRunningPrIds, setReviewRunningPrIds] = useState<number[]>([]);
   const [workflowRounds, setWorkflowRounds] = useState<WorkflowRoundSummary[]>([]);
   const [pendingReviewPrIds, setPendingReviewPrIds] = useState<number[]>([]);
+  const [pendingIssueFixIds, setPendingIssueFixIds] = useState<number[]>([]);
+  const [pendingFixAllPrIds, setPendingFixAllPrIds] = useState<number[]>([]);
 
   const selectedProject = useMemo(
     () => projects.find((project) => project.project_key === selectedProjectKey) ?? null,
@@ -436,6 +438,62 @@ export default function App() {
     }
   }
 
+  async function handleFixIssue(issue: IssueSummary) {
+    if (!selectedPr || !selectedProjectKey) {
+      setError('Select a PR before fixing an issue');
+      return;
+    }
+
+    setError(null);
+    setPendingIssueFixIds((current) => (current.includes(issue.id) ? current : [...current, issue.id]));
+    try {
+      const response = await fetch(`${API_BASE_URL}/issues/${issue.id}/fix`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      if (!response.ok) {
+        throw new Error(await readApiError(response));
+      }
+
+      await loadProjectIssues(selectedProjectKey, selectedPr);
+      await loadWorkflows(selectedProjectKey);
+      await loadSelectedWorkflowRounds(selectedPr);
+    } catch (err) {
+      setError(toErrorMessage(err));
+    } finally {
+      setPendingIssueFixIds((current) => current.filter((item) => item !== issue.id));
+    }
+  }
+
+  async function handleFixAll(pr: PullRequestSummary) {
+    if (!selectedProjectKey) {
+      setError('Select a project before fixing issues');
+      return;
+    }
+
+    setError(null);
+    setPendingFixAllPrIds((current) => (current.includes(pr.id) ? current : [...current, pr.id]));
+    try {
+      const response = await fetch(`${API_BASE_URL}/prs/${pr.id}/fix-all`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      if (!response.ok) {
+        throw new Error(await readApiError(response));
+      }
+
+      await loadProjectIssues(selectedProjectKey, pr);
+      await loadWorkflows(selectedProjectKey);
+      await loadSelectedWorkflowRounds(pr);
+    } catch (err) {
+      setError(toErrorMessage(err));
+    } finally {
+      setPendingFixAllPrIds((current) => current.filter((item) => item !== pr.id));
+    }
+  }
+
   async function handleUpdateIssueStatus(issueId: number, newStatus: string) {
     setError(null);
     try {
@@ -665,6 +723,13 @@ export default function App() {
                 <div>
                   <h3>Bug Pool</h3>
                 </div>
+                <button
+                  className="brew-fix-action brew-fix-action-primary"
+                  onClick={() => void handleFixAll(selectedPr)}
+                  disabled={pendingFixAllPrIds.includes(selectedPr.id)}
+                >
+                  {pendingFixAllPrIds.includes(selectedPr.id) ? 'Fixing...' : 'Fix All'}
+                </button>
               </div>
 
               <div className="brew-card-grid brew-bug-card-grid">
@@ -720,12 +785,24 @@ export default function App() {
                        </div>
                      </div>
                     <p className="brew-card-meta">{issue.file_path}:{issue.start_line}-{issue.end_line}</p>
-                    <div className="brew-chip-row">
-                      <span className="brew-chip">PR #{issue.pr_number}</span>
-                      <span className="brew-chip">Confidence {issue.confidence ?? '-'}</span>
-                    </div>
-                    <div className="brew-card-footer">Updated {formatDateTime(issue.updated_at)}</div>
-                  </article>
+                     <div className="brew-chip-row">
+                       <span className="brew-chip">PR #{issue.pr_number}</span>
+                       <span className="brew-chip">Confidence {issue.confidence ?? '-'}</span>
+                     </div>
+                     <div className="brew-bug-card-actions">
+                       <button
+                         className="brew-fix-action"
+                         onClick={(event) => {
+                           event.stopPropagation();
+                           void handleFixIssue(issue);
+                         }}
+                         disabled={pendingIssueFixIds.includes(issue.id)}
+                       >
+                         {pendingIssueFixIds.includes(issue.id) ? 'Fixing...' : 'Fix'}
+                       </button>
+                     </div>
+                     <div className="brew-card-footer">Updated {formatDateTime(issue.updated_at)}</div>
+                   </article>
                 ))}
                 {projectIssues.length === 0 ? <div className="brew-empty-block">This PR has no bugs in pool.</div> : null}
               </div>
@@ -853,6 +930,13 @@ export default function App() {
             </div>
 
             <div className="brew-modal-actions">
+              <button
+                className="brew-btn-primary"
+                onClick={() => void handleFixIssue(selectedIssue)}
+                disabled={pendingIssueFixIds.includes(selectedIssue.id)}
+              >
+                {pendingIssueFixIds.includes(selectedIssue.id) ? 'Fixing...' : 'Fix'}
+              </button>
               <button className="brew-btn-secondary" onClick={() => setSelectedIssueId(null)}>关闭</button>
             </div>
           </div>
