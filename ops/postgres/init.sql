@@ -2,6 +2,8 @@ CREATE TABLE IF NOT EXISTS projects (
     id BIGSERIAL PRIMARY KEY,
     project_key TEXT NOT NULL UNIQUE,
     project_name TEXT NOT NULL,
+    repo_url TEXT,
+    repo_dir TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );

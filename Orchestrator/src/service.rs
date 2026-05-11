@@ -80,9 +80,9 @@ impl OrchestratorService {
     }
 
     pub async fn list_projects(&self) -> Result<Vec<ProjectSummary>> {
-        let rows = sqlx::query_as::<_, (i64, String, String, chrono::DateTime<Utc>, chrono::DateTime<Utc>)>(
+        let rows = sqlx::query_as::<_, (i64, String, String, Option<String>, Option<String>, chrono::DateTime<Utc>, chrono::DateTime<Utc>)>(
             r#"
-            SELECT id, project_key, project_name, created_at, updated_at
+            SELECT id, project_key, project_name, repo_url, repo_dir, created_at, updated_at
             FROM projects
             ORDER BY updated_at DESC, id DESC
             "#,
@@ -92,34 +92,57 @@ impl OrchestratorService {
 
         Ok(rows
             .into_iter()
-            .map(|(id, project_key, project_name, created_at, updated_at)| ProjectSummary {
+            .map(|(id, project_key, project_name, repo_url, repo_dir, created_at, updated_at)| ProjectSummary {
                 id,
                 project_key,
                 project_name,
+                repo_url,
+                repo_dir,
                 created_at,
                 updated_at,
             })
             .collect())
     }
 
-    pub async fn create_project(&self, project_name: String) -> Result<ProjectSummary> {
+    pub async fn create_project(&self, project_name: String, repo_url: Option<String>) -> Result<ProjectSummary> {
         let project_name = project_name.trim().to_string();
         if project_name.is_empty() {
             return Err(OrchestratorError::Config("project_name is required".to_string()));
         }
 
         let project_key = build_project_key(&project_name);
-        let row = sqlx::query_as::<_, (i64, String, String, chrono::DateTime<Utc>, chrono::DateTime<Utc>)>(
+
+        let repo_dir = if let Some(ref url) = repo_url {
+            let dir = PathBuf::from("/workspace/repos").join(&project_key);
+            let dir_str = dir.to_string_lossy().to_string();
+            tokio::fs::create_dir_all(&dir).await.map_err(|e| OrchestratorError::Io(e))?;
+            let output = tokio::process::Command::new("git")
+                .args(["clone", "--depth=1", url, &dir_str])
+                .output()
+                .await
+                .map_err(|e| OrchestratorError::Config(format!("git clone failed: {}", e)))?;
+            if !output.status.success() {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                return Err(OrchestratorError::Config(format!("git clone failed: {}", stderr)));
+            }
+            Some(dir_str)
+        } else {
+            None
+        };
+
+        let row = sqlx::query_as::<_, (i64, String, String, Option<String>, Option<String>, chrono::DateTime<Utc>, chrono::DateTime<Utc>)>(
             r#"
-            INSERT INTO projects (project_key, project_name)
-            VALUES ($1, $2)
+            INSERT INTO projects (project_key, project_name, repo_url, repo_dir)
+            VALUES ($1, $2, $3, $4)
             ON CONFLICT (project_key)
-            DO UPDATE SET project_name = EXCLUDED.project_name, updated_at = NOW()
-            RETURNING id, project_key, project_name, created_at, updated_at
+            DO UPDATE SET project_name = EXCLUDED.project_name, repo_url = EXCLUDED.repo_url, repo_dir = EXCLUDED.repo_dir, updated_at = NOW()
+            RETURNING id, project_key, project_name, repo_url, repo_dir, created_at, updated_at
             "#,
         )
         .bind(&project_key)
         .bind(&project_name)
+        .bind(&repo_url)
+        .bind(&repo_dir)
         .fetch_one(&self.pool)
         .await?;
 
@@ -127,8 +150,10 @@ impl OrchestratorService {
             id: row.0,
             project_key: row.1,
             project_name: row.2,
-            created_at: row.3,
-            updated_at: row.4,
+            repo_url: row.3,
+            repo_dir: row.4,
+            created_at: row.5,
+            updated_at: row.6,
         })
     }
 
@@ -680,6 +705,50 @@ impl OrchestratorService {
             dry_run,
         )
         .await
+    }
+
+    pub async fn get_project_repo_dir(&self, project_key: &str) -> Result<Option<PathBuf>> {
+        let repo_dir: Option<String> = sqlx::query_scalar(
+            r#"SELECT repo_dir FROM projects WHERE project_key = $1"#,
+        )
+        .bind(project_key)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        Ok(repo_dir.map(PathBuf::from))
+    }
+
+    pub async fn get_project_repo_dir_for_issue(&self, issue_id: i64) -> Result<Option<PathBuf>> {
+        let repo_dir: Option<String> = sqlx::query_scalar(
+            r#"
+            SELECT p.repo_dir
+            FROM issues i
+            JOIN pull_requests pr ON pr.id = i.pull_request_id
+            JOIN projects p ON p.id = pr.project_id
+            WHERE i.id = $1
+            "#,
+        )
+        .bind(issue_id)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        Ok(repo_dir.map(PathBuf::from))
+    }
+
+    pub async fn get_project_repo_dir_for_pr(&self, pr_id: i64) -> Result<Option<PathBuf>> {
+        let repo_dir: Option<String> = sqlx::query_scalar(
+            r#"
+            SELECT p.repo_dir
+            FROM pull_requests pr
+            JOIN projects p ON p.id = pr.project_id
+            WHERE pr.id = $1
+            "#,
+        )
+        .bind(pr_id)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        Ok(repo_dir.map(PathBuf::from))
     }
 
     pub async fn start_review_run(

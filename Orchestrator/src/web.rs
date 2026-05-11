@@ -60,6 +60,7 @@ pub struct RunUntilStableRequest {
 #[derive(Debug, Deserialize)]
 pub struct CreateProjectRequest {
     pub project_name: String,
+    pub repo_url: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -124,7 +125,7 @@ async fn create_project(
     State(service): State<OrchestratorService>,
     Json(request): Json<CreateProjectRequest>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let result = service.create_project(request.project_name).await?;
+    let result = service.create_project(request.project_name, request.repo_url).await?;
     Ok(Json(serde_json::json!(result)))
 }
 
@@ -156,7 +157,10 @@ async fn start_review(
     State(service): State<OrchestratorService>,
     Json(request): Json<StartReviewRequest>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let repo_dir = PathBuf::from(request.repo_dir.unwrap_or_else(|| ".".to_string()));
+    let repo_dir = service
+        .get_project_repo_dir(&request.project_key)
+        .await?
+        .unwrap_or_else(|| PathBuf::from(request.repo_dir.unwrap_or_else(|| ".".to_string())));
     let project_key = request.project_key;
     let project_name = request.project_name;
     let pr_url = request.pr_url;
@@ -206,7 +210,12 @@ async fn start_issue_fix(
     Path(issue_id): Path<i64>,
     Json(request): Json<StartFixRequest>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let repo_dir = PathBuf::from(request.repo_dir.unwrap_or_else(|| ".".to_string()));
+    let repo_dir_from_project = service
+        .get_project_repo_dir_for_issue(issue_id)
+        .await?;
+    let repo_dir = repo_dir_from_project
+        .or_else(|| request.repo_dir.map(PathBuf::from))
+        .unwrap_or_else(|| PathBuf::from("."));
     let claimed_by = request.claimed_by.unwrap_or_else(|| "orchestrator-api".to_string());
     let dry_run = request.dry_run.unwrap_or(false);
 
@@ -222,7 +231,12 @@ async fn start_pr_fix_all(
     Path(pr_id): Path<i64>,
     Json(request): Json<StartFixRequest>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let repo_dir = PathBuf::from(request.repo_dir.unwrap_or_else(|| ".".to_string()));
+    let repo_dir_from_project = service
+        .get_project_repo_dir_for_pr(pr_id)
+        .await?;
+    let repo_dir = repo_dir_from_project
+        .or_else(|| request.repo_dir.map(PathBuf::from))
+        .unwrap_or_else(|| PathBuf::from("."));
     let claimed_by = request.claimed_by.unwrap_or_else(|| "orchestrator-api".to_string());
     let dry_run = request.dry_run.unwrap_or(false);
 
@@ -271,7 +285,10 @@ async fn start_workflow(
     State(service): State<OrchestratorService>,
     Json(request): Json<RunUntilStableRequest>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let repo_dir = PathBuf::from(request.repo_dir.unwrap_or_else(|| ".".to_string()));
+    let repo_dir = service
+        .get_project_repo_dir(&request.project_key)
+        .await?
+        .unwrap_or_else(|| PathBuf::from(request.repo_dir.unwrap_or_else(|| ".".to_string())));
     let project_key = request.project_key;
     let project_name = request.project_name;
     let pr_url = request.pr_url;
