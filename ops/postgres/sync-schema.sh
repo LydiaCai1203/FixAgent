@@ -28,6 +28,24 @@ BEGIN
         ALTER TABLE issues ADD COLUMN original_code TEXT;
         RAISE NOTICE 'Added original_code column to issues table';
     END IF;
+
+    -- Add repo_url to projects if missing
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'projects' AND column_name = 'repo_url'
+    ) THEN
+        ALTER TABLE projects ADD COLUMN repo_url TEXT;
+        RAISE NOTICE 'Added repo_url column to projects table';
+    END IF;
+
+    -- Add repo_dir to projects if missing
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'projects' AND column_name = 'repo_dir'
+    ) THEN
+        ALTER TABLE projects ADD COLUMN repo_dir TEXT;
+        RAISE NOTICE 'Added repo_dir column to projects table';
+    END IF;
 END
 \$\$;
 "

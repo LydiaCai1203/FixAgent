@@ -45,6 +45,8 @@ pub struct ProjectSummary {
     pub id: i64,
     pub project_key: String,
     pub project_name: String,
+    pub repo_url: Option<String>,
+    pub repo_dir: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }

@@ -7,6 +7,8 @@ type ProjectSummary = {
   id: number;
   project_key: string;
   project_name: string;
+  repo_url: string | null;
+  repo_dir: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -87,6 +89,7 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [showCreateProject, setShowCreateProject] = useState(false);
   const [newProjectName, setNewProjectName] = useState('');
+  const [newProjectRepoUrl, setNewProjectRepoUrl] = useState('');
   const [showCreatePr, setShowCreatePr] = useState(false);
   const [newPrUrl, setNewPrUrl] = useState('');
   const [pendingProjectKeyForPr, setPendingProjectKeyForPr] = useState<string | null>(null);
@@ -340,7 +343,7 @@ export default function App() {
       const response = await fetch(`${API_BASE_URL}/projects`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ project_name: newProjectName.trim() }),
+        body: JSON.stringify({ project_name: newProjectName.trim(), repo_url: newProjectRepoUrl.trim() || null }),
       });
       if (!response.ok) {
         throw new Error(await readApiError(response));
@@ -348,6 +351,7 @@ export default function App() {
       await loadProjects();
       setShowCreateProject(false);
       setNewProjectName('');
+      setNewProjectRepoUrl('');
     } catch (err) {
       setError(toErrorMessage(err));
     }
@@ -823,6 +827,13 @@ export default function App() {
               value={newProjectName}
               onChange={(e) => setNewProjectName(e.target.value)}
               autoFocus
+              onKeyDown={(e) => e.key === 'Enter' && void handleCreateProject()}
+            />
+            <input
+              className="brew-modal-input"
+              placeholder="Repository URL (e.g. https://github.com/owner/repo)"
+              value={newProjectRepoUrl}
+              onChange={(e) => setNewProjectRepoUrl(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && void handleCreateProject()}
             />
             <div className="brew-modal-actions">
