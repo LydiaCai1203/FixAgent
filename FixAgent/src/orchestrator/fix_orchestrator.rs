@@ -127,7 +127,16 @@ impl FixOrchestrator {
             self.repo_dir.clone(),
         )?;
 
-        let patch = fix_agent.run(FIX_SYSTEM_PROMPT, &prompt).await?;
+        let mut patch = fix_agent.run(FIX_SYSTEM_PROMPT, &prompt).await?;
+
+        if patch.file != task.issue.file {
+            tracing::warn!(
+                "FixAgent returned patch file '{}' but issue file is '{}'; overriding patch file",
+                patch.file,
+                task.issue.file
+            );
+            patch.file = task.issue.file.clone();
+        }
 
         // Validate patch
         let validator = PatchValidator::new(self.config.fix.max_replacement_lines);
