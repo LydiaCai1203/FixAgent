@@ -873,7 +873,7 @@ export default function App() {
                          }}
                         disabled={pendingIssueFixIds.includes(issue.id) || pendingFixAllPrIds.includes(selectedPr.id)}
                         >
-                          {pendingIssueFixIds.includes(issue.id) ? <span className="brew-pr-run-spinner" aria-hidden="true" /> : 'Fix'}
+                          {pendingIssueFixIds.includes(issue.id) ? <span className="brew-fix-spinner" aria-hidden="true" /> : 'Fix'}
                        </button>
                      </div>
                    </article>
@@ -1016,7 +1016,7 @@ export default function App() {
                 onClick={() => void handleFixIssue(selectedIssue)}
                 disabled={pendingIssueFixIds.includes(selectedIssue.id) || pendingFixAllPrIds.includes(selectedPr.id)}
               >
-                {pendingIssueFixIds.includes(selectedIssue.id) ? <span className="brew-pr-run-spinner" aria-hidden="true" /> : 'Fix'}
+                {pendingIssueFixIds.includes(selectedIssue.id) ? <span className="brew-fix-spinner" aria-hidden="true" /> : 'Fix'}
               </button>
               <button className="brew-btn-secondary" onClick={() => setSelectedIssueId(null)}>关闭</button>
             </div>
