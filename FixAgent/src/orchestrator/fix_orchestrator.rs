@@ -127,11 +127,7 @@ impl FixOrchestrator {
             self.repo_dir.clone(),
         )?;
 
-        let patch = if self.config.agent.enabled {
-            fix_agent.run(FIX_SYSTEM_PROMPT, &prompt).await?
-        } else {
-            fix_agent.run_simple(FIX_SYSTEM_PROMPT, &prompt).await?
-        };
+        let patch = fix_agent.run(FIX_SYSTEM_PROMPT, &prompt).await?;
 
         // Validate patch
         let validator = PatchValidator::new(self.config.fix.max_replacement_lines);
