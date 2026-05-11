@@ -22,6 +22,14 @@ pub struct FixResult {
     pub rationale: String,
     pub verification_steps: Vec<String>,
     pub replacement_preview: String,
+    pub confirmation: Option<FixConfirmation>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FixConfirmation {
+    pub confirmed: bool,
+    pub confidence: u8,
+    pub findings: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

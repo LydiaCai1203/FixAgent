@@ -6,16 +6,17 @@
 //! 3. Run FixAgent to generate patch (with or without tools)
 //! 4. Validate patch via refine layer
 //! 5. Apply or reject patch
-//! 6. Return structured fix result
+//! 6. Confirm fix by reading patched file and verifying correctness
+//! 7. Return structured fix result
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use crate::agent::{FixAgent, FIX_SYSTEM_PROMPT, VERIFY_SYSTEM_PROMPT, build_fix_prompt, build_verification_prompt};
+use crate::agent::{FixAgent, FIX_SYSTEM_PROMPT, VERIFY_SYSTEM_PROMPT, build_fix_prompt, build_verification_prompt, CONFIRM_SYSTEM_PROMPT, build_confirmation_prompt};
 use crate::config::FixAgentConfig;
 use crate::error::{FixError, Result};
 use crate::models::{
-    FixExecutionStatus, FixPatchOutcome, FixResult, FixTask, LineRange,
+    FixConfirmation, FixExecutionStatus, FixPatchOutcome, FixResult, FixTask, LineRange,
 };
 use crate::refine::PatchValidator;
 use reviewagent::llm::{Issue, LlmClient, ReviewResponse};
@@ -165,6 +166,35 @@ impl FixOrchestrator {
             FixPatchOutcome::InvalidCandidate => FixExecutionStatus::InvalidCandidate,
         };
 
+        // Phase 4: Confirm the fix by reading the patched file
+        let confirmation = if !dry_run && status == FixExecutionStatus::Applied {
+            match self
+                .confirm_fix(
+                    &task.issue,
+                    &patch.file,
+                    patch.start_line,
+                    patch.end_line,
+                    &patch.replacement,
+                )
+                .await
+            {
+                Ok(c) => {
+                    tracing::info!(
+                        "Fix confirmation: confirmed={}, confidence={}",
+                        c.confirmed,
+                        c.confidence
+                    );
+                    Some(c)
+                }
+                Err(e) => {
+                    tracing::warn!("Fix confirmation failed: {}", e);
+                    None
+                }
+            }
+        } else {
+            None
+        };
+
         Ok(FixResult {
             issue_id: task.issue_id,
             issue_index: task.issue_index,
@@ -180,6 +210,7 @@ impl FixOrchestrator {
             rationale: patch.rationale,
             verification_steps: patch.verification_steps,
             replacement_preview,
+            confirmation,
         })
     }
 
@@ -221,6 +252,55 @@ impl FixOrchestrator {
         };
 
         Ok(verification)
+    }
+
+    async fn confirm_fix(
+        &self,
+        issue: &Issue,
+        file_path: &str,
+        start_line: usize,
+        end_line: usize,
+        expected_replacement: &str,
+    ) -> Result<FixConfirmation> {
+        tracing::info!("Starting fix confirmation for {}:{}", file_path, start_line);
+
+        let explorer = ExplorerAgent::new(
+            &crate::config::load_reviewagent_config(&self.repo_dir)
+                .map_err(|e| FixError::Config(format!("Failed to load config: {}", e)))?,
+            self.repo_dir.clone(),
+        )
+        .map_err(|e| FixError::Config(format!("Failed to create explorer: {}", e)))?;
+
+        let prompt = build_confirmation_prompt(
+            issue,
+            file_path,
+            start_line,
+            end_line,
+            expected_replacement,
+        );
+        let reporter = Arc::new(reviewagent::tools::rig_tools::NoopReporter);
+
+        let response = explorer
+            .run(&prompt, reporter)
+            .await
+            .map_err(|e| FixError::Agent(format!("Confirmation agent failed: {}", e)))?;
+
+        let confirmation: FixConfirmation =
+            if let Ok(c) = serde_json::from_str(&response) {
+                c
+            } else if let Some(json_str) = extract_json(&response) {
+                serde_json::from_str(json_str)
+                    .map_err(|e| FixError::Agent(format!("Failed to parse confirmation JSON: {}", e)))?
+            } else {
+                tracing::warn!("Could not parse confirmation response as JSON, assuming unconfirmed");
+                FixConfirmation {
+                    confirmed: false,
+                    confidence: 0,
+                    findings: format!("Unparseable confirmation response: {}", response),
+                }
+            };
+
+        Ok(confirmation)
     }
 
     async fn load_review(

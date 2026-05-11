@@ -10,6 +10,6 @@ pub mod prompt;
 
 pub use fix::FixAgent;
 pub use prompt::{
-    build_fix_prompt, build_exploration_prompt, build_verification_prompt, FIX_SYSTEM_PROMPT,
-    VERIFY_SYSTEM_PROMPT,
+    build_confirmation_prompt, build_fix_prompt, build_exploration_prompt,
+    build_verification_prompt, CONFIRM_SYSTEM_PROMPT, FIX_SYSTEM_PROMPT, VERIFY_SYSTEM_PROMPT,
 };

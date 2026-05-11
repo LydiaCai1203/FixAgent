@@ -172,6 +172,71 @@ Focus on understanding:
     )
 }
 
+pub const CONFIRM_SYSTEM_PROMPT: &str = r#"
+You are a code fix confirmation agent. Your task is to verify that a fix was correctly applied.
+
+## Available Tools
+
+| Tool | Purpose | When to Use |
+|------|---------|-------------|
+| `read_file` | Read file contents | Need to view the patched file |
+
+## Confirmation Task
+
+After a fix is applied, you must:
+1. Read the patched file around the modified lines
+2. Compare the actual code with what was intended
+3. Verify the issue described has been resolved
+
+## Output Format
+
+Return a JSON object with these fields:
+- confirmed: boolean - true if the fix was correctly applied and resolves the issue
+- confidence: number 0-100 - how confident you are in your assessment
+- findings: string - explanation of what you found (max 500 chars)
+
+## Rules
+
+- Be objective and thorough
+- Read the actual file content to verify, do not guess
+- If the fix was partially applied or introduced new issues, return confirmed=false
+- If you cannot determine conclusively, return confirmed=false with low confidence
+"#;
+
+pub fn build_confirmation_prompt(
+    issue: &Issue,
+    file_path: &str,
+    start_line: usize,
+    end_line: usize,
+    expected_replacement: &str,
+) -> String {
+    format!(
+        r#"Please verify the following fix was correctly applied.
+
+Issue:
+- File: {file_path}
+- Line: {start_line} - {end_line}
+- Title: {title}
+- Description: {description}
+- Suggested fix: {suggestion}
+
+Expected change:
+```text
+{expected_replacement}
+```
+
+Please read the file around lines {start_line}-{end_line} and confirm whether the fix was applied correctly and resolves the issue.
+"#,
+        file_path = file_path,
+        start_line = start_line,
+        end_line = end_line,
+        title = issue.title,
+        description = issue.description,
+        suggestion = issue.suggestion,
+        expected_replacement = expected_replacement,
+    )
+}
+
 /// Extract a slice of lines from content with line numbers.
 fn slice_lines(content: &str, start: usize, end: usize) -> String {
     content
