@@ -956,9 +956,10 @@ export default function App() {
                       </div>
                     <p className="brew-card-meta">{issue.file_path}:{issue.start_line}-{issue.end_line}</p>
                      <div className="brew-chip-row">
-                       <span className="brew-chip">PR #{issue.pr_number}</span>
-                       <span className="brew-chip">Confidence {issue.confidence ?? '-'}</span>
-                     </div>
+                        <span className="brew-chip">Issue #{issue.id}</span>
+                        <span className="brew-chip">PR #{issue.pr_number}</span>
+                        <span className="brew-chip">Confidence {issue.confidence ?? '-'}</span>
+                      </div>
                      <div className="brew-card-footer">
                        <span>Updated {formatDateTime(issue.updated_at)}</span>
                         <div
@@ -1065,6 +1066,7 @@ export default function App() {
                 <h3>{selectedIssue.title}</h3>
               </div>
               <div className="brew-issue-header-meta">
+                <span className="brew-status-pill">Issue #{selectedIssue.id}</span>
                 <span className={`brew-status-pill brew-status-${selectedIssue.status}`}>{selectedIssue.status}</span>
                 {selectedIssue.confidence !== null ? (
                   <span className="brew-issue-confidence">Confidence {selectedIssue.confidence}%</span>
