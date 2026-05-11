@@ -107,6 +107,7 @@ export default function App() {
   const [pendingFixAllPrIds, setPendingFixAllPrIds] = useState<number[]>([]);
   const prsRef = useRef<PullRequestSummary[]>([]);
   const projectIssuesRef = useRef<IssueSummary[]>([]);
+  const isFixingRef = useRef(false);
 
   const selectedProject = useMemo(
     () => projects.find((project) => project.project_key === selectedProjectKey) ?? null,
@@ -304,7 +305,7 @@ export default function App() {
           .filter(([, identity]) => runningPrNumbers.has(identity))
           .filter(([prId]) => {
             if (pendingFixAllPrIds.includes(prId)) return false;
-            if (pendingIssueFixIds.length > 0 && prId === selectedPrId) return false;
+            if (isFixingRef.current && prId === selectedPrId) return false;
             return true;
           })
           .map(([prId]) => prId),
@@ -459,6 +460,7 @@ export default function App() {
     }
 
     setError(null);
+    isFixingRef.current = true;
     setPendingIssueFixIds((current) => (current.includes(issue.id) ? current : [...current, issue.id]));
     try {
       const response = await fetch(`${API_BASE_URL}/issues/${issue.id}/fix`, {
@@ -476,6 +478,7 @@ export default function App() {
     } catch (err) {
       setError(toErrorMessage(err));
     } finally {
+      isFixingRef.current = false;
       setPendingIssueFixIds((current) => current.filter((item) => item !== issue.id));
     }
   }
@@ -487,6 +490,7 @@ export default function App() {
     }
 
     setError(null);
+    isFixingRef.current = true;
     setPendingFixAllPrIds((current) => (current.includes(pr.id) ? current : [...current, pr.id]));
     try {
       const response = await fetch(`${API_BASE_URL}/prs/${pr.id}/fix-all`, {
@@ -504,6 +508,7 @@ export default function App() {
     } catch (err) {
       setError(toErrorMessage(err));
     } finally {
+      isFixingRef.current = false;
       setPendingFixAllPrIds((current) => current.filter((item) => item !== pr.id));
     }
   }
