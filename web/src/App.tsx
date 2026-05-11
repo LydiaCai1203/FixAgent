@@ -585,6 +585,9 @@ export default function App() {
     const completedRounds = relatedRounds.filter((round) => round.status === 'completed').length;
     const runningRound = relatedRounds.find((round) => round.status === 'running') ?? null;
     const totalRounds = workflow?.max_rounds ?? relatedRounds.length;
+    const currentIssue = runningRound?.issue_id
+      ? projectIssues.find((issue) => issue.id === runningRound.issue_id) ?? null
+      : null;
 
     return {
       workflow,
@@ -592,6 +595,7 @@ export default function App() {
       completedRounds,
       runningRound,
       totalRounds,
+      currentIssue,
       isPendingSubmission: pendingFixAllPrIds.includes(pr.id),
     };
   }
@@ -840,7 +844,7 @@ export default function App() {
                       })() : 'Fix All'}
                     </button>
                     {hoveredFixAllPrId === selectedPr.id ? (() => {
-                      const { workflow, relatedRounds, completedRounds, runningRound, totalRounds, isPendingSubmission } = fixAllDetailsForPr(selectedPr);
+                      const { workflow, relatedRounds, completedRounds, runningRound, totalRounds, currentIssue, isPendingSubmission } = fixAllDetailsForPr(selectedPr);
                       const progressLabel = totalRounds > 0 ? `${completedRounds}/${totalRounds}` : '0/0';
                       const progressWidth = totalRounds > 0 ? `${(completedRounds / totalRounds) * 100}%` : '0%';
                       return (
@@ -859,7 +863,7 @@ export default function App() {
                               <div className="brew-review-popover-line"><strong>Status:</strong> {workflow.status}</div>
                               <div className="brew-review-popover-line"><strong>Completed:</strong> {completedRounds}</div>
                               <div className="brew-review-popover-line"><strong>Remaining:</strong> {Math.max(totalRounds - completedRounds, 0)}</div>
-                              <div className="brew-review-popover-line"><strong>Current:</strong> {runningRound ? `Round ${runningRound.round_number}` : (workflow.status === 'running' ? 'Waiting for next round' : 'Done')}</div>
+                              <div className="brew-review-popover-line"><strong>Current:</strong> {currentIssue ? `Fixing ${currentIssue.title}` : (runningRound ? `Fixing issue #${runningRound.issue_id ?? '...'}` : (workflow.status === 'running' ? 'Waiting for next round' : 'Done'))}</div>
                               <div className="brew-review-popover-line"><strong>Started:</strong> {formatDateTime(workflow.started_at)}</div>
                               <div className="brew-review-popover-line"><strong>Completed:</strong> {workflow.completed_at ? formatDateTime(workflow.completed_at) : 'Running'}</div>
                               <div className="brew-review-popover-line"><strong>Summary:</strong> {workflow.summary ?? 'No workflow summary yet.'}</div>
