@@ -95,6 +95,8 @@ export default function App() {
   const [pendingProjectKeyForPr, setPendingProjectKeyForPr] = useState<string | null>(null);
   const [openProjectMenuKey, setOpenProjectMenuKey] = useState<string | null>(null);
   const [hoveredReviewPrId, setHoveredReviewPrId] = useState<number | null>(null);
+  const [hoveredFixAllPrId, setHoveredFixAllPrId] = useState<number | null>(null);
+  const [hoveredFixIssueId, setHoveredFixIssueId] = useState<number | null>(null);
   const [selectedIssueId, setSelectedIssueId] = useState<number | null>(null);
   const [openIssueMenuId, setOpenIssueMenuId] = useState<number | null>(null);
   const [deleteConfirmIssueId, setDeleteConfirmIssueId] = useState<number | null>(null);
@@ -560,6 +562,12 @@ export default function App() {
     return workflowRuns.find((item) => item.platform === pr.platform && item.pr_number === pr.pr_number) ?? null;
   }
 
+  function latestWorkflowForPr(pr: PullRequestSummary) {
+    return workflowRuns
+      .filter((item) => item.platform === pr.platform && item.pr_number === pr.pr_number)
+      .sort((left, right) => new Date(right.started_at).getTime() - new Date(left.started_at).getTime())[0] ?? null;
+  }
+
   function reviewDetailsForPr(pr: PullRequestSummary) {
     const workflow = workflowStatusForPr(pr);
     const relatedRounds = workflow ? workflowRounds.filter((round) => round.workflow_run_id === workflow.id) : [];
@@ -568,6 +576,30 @@ export default function App() {
       workflow,
       relatedRounds,
       isPendingSubmission: pendingReviewPrIds.includes(pr.id),
+    };
+  }
+
+  function fixAllDetailsForPr(pr: PullRequestSummary) {
+    const workflow = latestWorkflowForPr(pr);
+    const relatedRounds = workflow ? workflowRounds.filter((round) => round.workflow_run_id === workflow.id) : [];
+
+    return {
+      workflow,
+      relatedRounds,
+      isPendingSubmission: pendingFixAllPrIds.includes(pr.id),
+    };
+  }
+
+  function fixDetailsForIssue(issue: IssueSummary) {
+    const workflow = selectedPr ? latestWorkflowForPr(selectedPr) : null;
+    const relatedRound = workflow
+      ? workflowRounds.find((round) => round.workflow_run_id === workflow.id && round.issue_id === issue.id) ?? null
+      : null;
+
+    return {
+      workflow,
+      relatedRound,
+      isPendingSubmission: pendingIssueFixIds.includes(issue.id),
     };
   }
 
@@ -781,13 +813,47 @@ export default function App() {
                   >
                     Clear
                   </button>
-                  <button
-                    className="brew-fix-action brew-fix-action-primary"
-                    onClick={() => void handleFixAll(selectedPr)}
-                    disabled={pendingFixAllPrIds.includes(selectedPr.id) || reviewRunningPrIds.includes(selectedPr.id) || pendingReviewPrIds.includes(selectedPr.id)}
+                  <div
+                    className="brew-fix-action-wrap"
+                    onMouseEnter={() => setHoveredFixAllPrId(selectedPr.id)}
+                    onMouseLeave={() => setHoveredFixAllPrId((current) => current === selectedPr.id ? null : current)}
                   >
-                    {pendingFixAllPrIds.includes(selectedPr.id) ? <span className="brew-fix-spinner" aria-hidden="true" /> : 'Fix All'}
-                  </button>
+                    <button
+                      className="brew-fix-action brew-fix-action-primary"
+                      onClick={() => void handleFixAll(selectedPr)}
+                      disabled={pendingFixAllPrIds.includes(selectedPr.id) || reviewRunningPrIds.includes(selectedPr.id) || pendingReviewPrIds.includes(selectedPr.id)}
+                    >
+                      {pendingFixAllPrIds.includes(selectedPr.id) ? <span className="brew-fix-spinner" aria-hidden="true" /> : 'Fix All'}
+                    </button>
+                    {hoveredFixAllPrId === selectedPr.id ? (() => {
+                      const { workflow, relatedRounds, isPendingSubmission } = fixAllDetailsForPr(selectedPr);
+                      return (
+                        <div className="brew-fix-popover">
+                          {isPendingSubmission ? <div className="brew-review-popover-line">Fix All task is running...</div> : null}
+                          {!workflow && !isPendingSubmission ? <div className="brew-review-popover-line">No Fix All task has started yet.</div> : null}
+                          {workflow ? (
+                            <>
+                              <div className="brew-review-popover-line"><strong>Status:</strong> {workflow.status}</div>
+                              <div className="brew-review-popover-line"><strong>Started:</strong> {formatDateTime(workflow.started_at)}</div>
+                              <div className="brew-review-popover-line"><strong>Completed:</strong> {workflow.completed_at ? formatDateTime(workflow.completed_at) : 'Running'}</div>
+                              <div className="brew-review-popover-line"><strong>Summary:</strong> {workflow.summary ?? 'No workflow summary yet.'}</div>
+                              {relatedRounds.length > 0 ? (
+                                <div className="brew-review-popover-rounds">
+                                  {relatedRounds.map((round) => (
+                                    <div key={round.id} className="brew-review-popover-round">
+                                      <div className="brew-review-popover-line"><strong>Round {round.round_number}</strong> {round.status}</div>
+                                      <div className="brew-review-popover-line">{round.summary ?? 'No round summary yet.'}</div>
+                                      <div className="brew-review-popover-line">{round.completed_at ? `Completed ${formatDateTime(round.completed_at)}` : 'Running'}</div>
+                                    </div>
+                                  ))}
+                                </div>
+                              ) : null}
+                            </>
+                          ) : null}
+                        </div>
+                      );
+                    })() : null}
+                  </div>
                 </div>
               </div>
 
@@ -865,18 +931,43 @@ export default function App() {
                      </div>
                      <div className="brew-card-footer">
                        <span>Updated {formatDateTime(issue.updated_at)}</span>
-                       <button
-                         className="brew-fix-action"
-                         onClick={(event) => {
-                           event.stopPropagation();
-                           void handleFixIssue(issue);
-                         }}
-                        disabled={pendingIssueFixIds.includes(issue.id) || pendingFixAllPrIds.includes(selectedPr.id)}
+                        <div
+                          className="brew-fix-action-wrap"
+                          onMouseEnter={() => setHoveredFixIssueId(issue.id)}
+                          onMouseLeave={() => setHoveredFixIssueId((current) => current === issue.id ? null : current)}
                         >
-                          {pendingIssueFixIds.includes(issue.id) ? <span className="brew-fix-spinner" aria-hidden="true" /> : 'Fix'}
-                       </button>
-                     </div>
-                   </article>
+                          <button
+                            className="brew-fix-action"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              void handleFixIssue(issue);
+                            }}
+                            disabled={pendingIssueFixIds.includes(issue.id) || pendingFixAllPrIds.includes(selectedPr.id)}
+                          >
+                            {pendingIssueFixIds.includes(issue.id) ? <span className="brew-fix-spinner" aria-hidden="true" /> : 'Fix'}
+                          </button>
+                          {hoveredFixIssueId === issue.id ? (() => {
+                            const { workflow, relatedRound, isPendingSubmission } = fixDetailsForIssue(issue);
+                            return (
+                              <div className="brew-fix-popover">
+                                <div className="brew-review-popover-line"><strong>Issue Status:</strong> {issue.status}</div>
+                                <div className="brew-review-popover-line"><strong>Updated:</strong> {formatDateTime(issue.updated_at)}</div>
+                                {isPendingSubmission ? <div className="brew-review-popover-line">Fix task is running for this issue.</div> : null}
+                                {!workflow && !isPendingSubmission ? <div className="brew-review-popover-line">No Fix task has started yet.</div> : null}
+                                {workflow ? (
+                                  <>
+                                    <div className="brew-review-popover-line"><strong>Workflow:</strong> {workflow.status}</div>
+                                    <div className="brew-review-popover-line"><strong>Started:</strong> {formatDateTime(workflow.started_at)}</div>
+                                    <div className="brew-review-popover-line"><strong>Summary:</strong> {relatedRound?.summary ?? workflow.summary ?? 'No workflow summary yet.'}</div>
+                                    <div className="brew-review-popover-line"><strong>Round:</strong> {relatedRound ? `${relatedRound.round_number} · ${relatedRound.status}` : 'Waiting for round details'}</div>
+                                  </>
+                                ) : null}
+                              </div>
+                            );
+                          })() : null}
+                        </div>
+                      </div>
+                    </article>
                 ))}
                 {projectIssues.length === 0 ? <div className="brew-empty-block">This PR has no bugs in pool.</div> : null}
               </div>

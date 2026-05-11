@@ -693,6 +693,26 @@ button {
   z-index: 20;
 }
 
+.brew-fix-action-wrap {
+  position: relative;
+  display: inline-flex;
+}
+
+.brew-fix-popover {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  width: 320px;
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(201, 223, 114, 0.12);
+  background: rgba(12, 44, 37, 0.98);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.34);
+  display: grid;
+  gap: 8px;
+  z-index: 20;
+}
+
 .brew-review-popover-line {
   color: var(--text-subtle);
   font-size: 12px;
