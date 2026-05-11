@@ -726,7 +726,7 @@ export default function App() {
                 <button
                   className="brew-fix-action brew-fix-action-primary"
                   onClick={() => void handleFixAll(selectedPr)}
-                  disabled={pendingFixAllPrIds.includes(selectedPr.id)}
+                  disabled={pendingFixAllPrIds.includes(selectedPr.id) || reviewRunningPrIds.includes(selectedPr.id) || pendingReviewPrIds.includes(selectedPr.id)}
                 >
                   {pendingFixAllPrIds.includes(selectedPr.id) ? 'Fixing...' : 'Fix All'}
                 </button>
@@ -797,7 +797,7 @@ export default function App() {
                            event.stopPropagation();
                            void handleFixIssue(issue);
                          }}
-                         disabled={pendingIssueFixIds.includes(issue.id)}
+                         disabled={pendingIssueFixIds.includes(issue.id) || pendingFixAllPrIds.includes(selectedPr.id)}
                        >
                          {pendingIssueFixIds.includes(issue.id) ? 'Fixing...' : 'Fix'}
                        </button>
@@ -933,7 +933,7 @@ export default function App() {
               <button
                 className="brew-btn-primary"
                 onClick={() => void handleFixIssue(selectedIssue)}
-                disabled={pendingIssueFixIds.includes(selectedIssue.id)}
+                disabled={pendingIssueFixIds.includes(selectedIssue.id) || pendingFixAllPrIds.includes(selectedPr.id)}
               >
                 {pendingIssueFixIds.includes(selectedIssue.id) ? 'Fixing...' : 'Fix'}
               </button>
