@@ -105,7 +105,7 @@ Your final response MUST be a valid JSON object in a markdown code block:
 {
   "summary": "Brief description of the fix (max 100 chars)",
   "outcome": "apply",
-  "file": "path/to/file.py",
+  "file": "<MUST exactly equal the issue File field>",
   "start_line": 10,
   "end_line": 15,
   "replacement": "complete replacement code",
@@ -113,6 +113,8 @@ Your final response MUST be a valid JSON object in a markdown code block:
   "verification_steps": ["step 1", "step 2"]
 }
 ```
+
+The `file` field must exactly match the issue File value provided in the prompt. Never use placeholder paths such as `path/to/file.py`.
 
 Do NOT include any text outside the JSON code block. Do NOT include reasoning or explanation.
 "#;

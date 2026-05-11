@@ -302,7 +302,7 @@ Your response MUST be a valid JSON object in a markdown code block:
 {
   "summary": "Brief description of the fix (max 100 chars)",
   "outcome": "apply",
-  "file": "path/to/file.py",
+  "file": "<MUST exactly equal the issue File field>",
   "start_line": 10,
   "end_line": 15,
   "replacement": "complete replacement code",
@@ -328,8 +328,9 @@ Your response MUST be a valid JSON object in a markdown code block:
 ## Rules
 
 1. Return ONLY the JSON code block - no explanation or text outside the code block
-2. replacement must contain COMPLETE code - no `// ...`, `// keep existing`, `// omitted` placeholders
-3. Only modify the necessary lines - if only one line changes, start_line == end_line
-4. Preserve original indentation exactly
-5. If unsure about the fix, return outcome=needs_human
+2. The `file` field must exactly match the issue File value from the input analysis; never invent or use placeholder paths such as `path/to/file.py`
+3. replacement must contain COMPLETE code - no `// ...`, `// keep existing`, `// omitted` placeholders
+4. Only modify the necessary lines - if only one line changes, start_line == end_line
+5. Preserve original indentation exactly
+6. If unsure about the fix, return outcome=needs_human
 "#;
