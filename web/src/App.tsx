@@ -45,6 +45,9 @@ type IssueSummary = {
   confidence: number | null;
   created_at: string;
   updated_at: string;
+  fix_replacement_preview: string | null;
+  fix_commit_sha: string | null;
+  pr_url: string;
 };
 
 type WorkflowRunSummary = {
@@ -1144,6 +1147,35 @@ export default function App() {
               </div>
             ) : null}
 
+            {/* Applied Fix */}
+            {selectedIssue.fix_replacement_preview ? (
+              <div className="brew-issue-block">
+                <div className="brew-issue-block-title">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="20 6 9 17 4 12"></polyline>
+                  </svg>
+                  Applied Fix
+                  {selectedIssue.fix_commit_sha ? (() => {
+                    const commitUrl = buildCommitUrl(selectedIssue.pr_url, selectedIssue.fix_commit_sha);
+                    return commitUrl ? (
+                      <a
+                        href={commitUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="brew-commit-link"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        {selectedIssue.fix_commit_sha.slice(0, 7)}
+                      </a>
+                    ) : (
+                      <span className="brew-commit-sha">{selectedIssue.fix_commit_sha.slice(0, 7)}</span>
+                    );
+                  })() : null}
+                </div>
+                <pre className="brew-code-block">{selectedIssue.fix_replacement_preview}</pre>
+              </div>
+            ) : null}
+
             {/* Footer */}
             <div className="brew-issue-footer">
               <span>PR #{selectedIssue.pr_number} · {selectedIssue.platform}</span>
@@ -1225,6 +1257,20 @@ function deriveProjectNameFromPrUrl(prUrl?: string | null) {
     return null;
   }
 
+  return null;
+}
+
+function buildCommitUrl(prUrl: string, commitSha: string): string | null {
+  try {
+    const url = new URL(prUrl);
+    const parts = url.pathname.split('/').filter(Boolean);
+    // GitHub/GitLab: /{owner}/{repo}/pull/... or /merge_requests/...
+    if (parts.length >= 2) {
+      return `${url.origin}/${parts[0]}/${parts[1]}/commit/${commitSha}`;
+    }
+  } catch {
+    return null;
+  }
   return null;
 }
 

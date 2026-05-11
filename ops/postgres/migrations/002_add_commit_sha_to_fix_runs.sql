@@ -1,0 +1,1 @@
+ALTER TABLE fix_runs ADD COLUMN IF NOT EXISTS commit_sha TEXT;

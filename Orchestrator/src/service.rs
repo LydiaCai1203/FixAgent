@@ -390,10 +390,20 @@ impl OrchestratorService {
                 i.status,
                 i.confidence,
                 i.created_at,
-                i.updated_at
+                i.updated_at,
+                fr.replacement_preview AS fix_replacement_preview,
+                fr.commit_sha AS fix_commit_sha,
+                pr.pr_url
             FROM issues i
             JOIN pull_requests pr ON pr.id = i.pull_request_id
             JOIN projects p ON p.id = pr.project_id
+            LEFT JOIN LATERAL (
+                SELECT replacement_preview, commit_sha
+                FROM fix_runs
+                WHERE issue_id = i.id
+                ORDER BY created_at DESC
+                LIMIT 1
+            ) fr ON true
             WHERE ($1::text IS NULL OR p.project_key = $1)
               AND ($2::text IS NULL OR pr.platform = $2)
               AND ($3::bigint IS NULL OR pr.pr_number = $3)
@@ -453,7 +463,10 @@ impl OrchestratorService {
                 i.status,
                 i.confidence,
                 i.created_at,
-                i.updated_at
+                i.updated_at,
+                NULL::text AS fix_replacement_preview,
+                NULL::text AS fix_commit_sha,
+                pr.pr_url
             "#,
         )
         .bind(&new_status)
@@ -1905,9 +1918,11 @@ impl OrchestratorService {
             .await
             .map_err(|e| OrchestratorError::Config(e.to_string()))?;
 
+        let mut commit_sha: Option<String> = None;
         if !dry_run && fix_result.status == FixExecutionStatus::Applied {
-            if let Err(e) = git_commit_and_push(&repo_dir, issue_id, &title).await {
-                tracing::warn!("Git commit/push failed for issue {}: {}", issue_id, e);
+            match git_commit_and_push(&repo_dir, issue_id, &title).await {
+                Ok(sha) => commit_sha = sha,
+                Err(e) => tracing::warn!("Git commit/push failed for issue {}: {}", issue_id, e),
             }
         }
 
@@ -1918,8 +1933,8 @@ impl OrchestratorService {
 
         let fix_run_id: i64 = sqlx::query_scalar(
             r#"
-            INSERT INTO fix_runs (issue_id, status, summary, rationale, verification_steps, replacement_preview)
-            VALUES ($1, $2, $3, $4, $5, $6)
+            INSERT INTO fix_runs (issue_id, status, summary, rationale, verification_steps, replacement_preview, commit_sha)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
             RETURNING id
             "#,
         )
@@ -1929,6 +1944,7 @@ impl OrchestratorService {
         .bind(&fix_result.rationale)
         .bind(serde_json::to_value(&fix_result.verification_steps)?)
         .bind(&fix_result.replacement_preview)
+        .bind(&commit_sha)
         .fetch_one(&mut *tx)
         .await?;
 
@@ -2225,7 +2241,7 @@ async fn git_commit_and_push(
     repo_dir: &PathBuf,
     issue_id: i64,
     title: &str,
-) -> std::result::Result<(), String> {
+) -> std::result::Result<Option<String>, String> {
     let output = tokio::process::Command::new("git")
         .args(["config", "user.email", "fixagent@monkeycode.ai"])
         .current_dir(repo_dir)
@@ -2267,12 +2283,25 @@ async fn git_commit_and_push(
         let stderr = String::from_utf8_lossy(&output.stderr);
         if stderr.contains("nothing to commit") {
             tracing::info!("No changes to commit for issue {}", issue_id);
-            return Ok(());
+            return Ok(None);
         }
         return Err(format!("git commit failed: {}", stderr));
     }
 
     tracing::info!("Committed fix for issue {}: {}", issue_id, title);
+
+    // Get the commit SHA
+    let sha_output = tokio::process::Command::new("git")
+        .args(["rev-parse", "HEAD"])
+        .current_dir(repo_dir)
+        .output()
+        .await
+        .map_err(|e| format!("git rev-parse failed: {}", e))?;
+    let commit_sha = if sha_output.status.success() {
+        Some(String::from_utf8_lossy(&sha_output.stdout).trim().to_string())
+    } else {
+        None
+    };
 
     let output = tokio::process::Command::new("git")
         .args(["push"])
@@ -2285,7 +2314,7 @@ async fn git_commit_and_push(
     }
 
     tracing::info!("Pushed fix for issue {} to remote", issue_id);
-    Ok(())
+    Ok(commit_sha)
 }
 
 fn build_issue_fingerprint(
