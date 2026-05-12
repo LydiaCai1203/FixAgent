@@ -1151,7 +1151,25 @@ export default function App() {
                     );
                   })() : null}
                 </div>
-                <pre className="brew-code-block">{selectedIssue.fix_replacement_preview}</pre>
+                {selectedIssue.original_code ? (
+                  <>
+                    <CodeDiffViewer
+                      oldCode={selectedIssue.original_code}
+                      newCode={selectedIssue.fix_replacement_preview}
+                      startLine={selectedIssue.start_line}
+                    />
+                    {selectedIssue.fix_commit_sha ? (() => {
+                      const commitUrl = buildCommitUrl(selectedIssue.pr_url, selectedIssue.fix_commit_sha);
+                      return commitUrl ? (
+                        <div className="brew-applied-fix-hint">
+                          For full changeset, <a href={commitUrl} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}>view commit {selectedIssue.fix_commit_sha.slice(0, 7)}</a>
+                        </div>
+                      ) : null;
+                    })() : null}
+                  </>
+                ) : (
+                  <pre className="brew-code-block">{selectedIssue.fix_replacement_preview}</pre>
+                )}
               </div>
             ) : null}
 
