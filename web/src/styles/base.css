@@ -1,0 +1,757 @@
+:root {
+  color-scheme: dark;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --page-bg: #0f332b;
+  --surface-primary: #123f35;
+  --surface-secondary: #0f332b;
+  --surface-strong: #0e3a31;
+  --text-primary: #d7e87a;
+  --text-secondary: #f0f2e6;
+  --text-muted: #7fc6b8;
+  --accent-primary: #d5e67a;
+  --accent-secondary: #2cc6a8;
+  --border-light: #c9df72;
+  --border-dark: #0e3a31;
+  --warning: #d8e86f;
+  --shadow-none: none;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  background:
+    radial-gradient(circle at top left, rgba(44, 198, 168, 0.08), transparent 24%),
+    radial-gradient(circle at bottom right, rgba(213, 230, 122, 0.03), transparent 20%),
+    linear-gradient(180deg, #0b2620 0%, #0f332b 44%, #0c2c25 100%);
+  color: var(--text-secondary);
+}
+
+button {
+  font: inherit;
+  cursor: pointer;
+}
+
+.brew-shell {
+  min-height: 100vh;
+  display: grid;
+  grid-template-columns: 248px 1fr;
+  column-gap: 18px;
+  background: transparent;
+}
+
+.brew-sidebar {
+  padding: 24px 18px;
+  background: rgba(11, 183, 154, 0.04);
+  border-right: 1px solid rgba(201, 223, 114, 0.08);
+  margin-right: 2px;
+  border-radius: 0 18px 18px 0;
+}
+
+.brew-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 24px;
+}
+
+.brew-brand-mark {
+  width: 42px;
+  height: 42px;
+  border-radius: 10px;
+  display: grid;
+  place-items: center;
+  background: rgba(18, 63, 53, 0.52);
+  border: 1px solid rgba(201, 223, 114, 0.12);
+  overflow: hidden;
+}
+
+.brew-brand-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.brew-brand-kicker,
+.brew-panel-kicker,
+.brew-topbar-kicker,
+.brew-card-kicker {
+  color: var(--text-muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.brew-brand h1,
+.brew-topbar h2,
+.brew-hero-card h3,
+.brew-panel h3,
+.brew-card strong {
+  margin: 0;
+}
+
+.brew-brand h1 {
+  color: var(--text-primary);
+  font-size: 18px;
+  letter-spacing: -0.02em;
+}
+
+.brew-nav {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 18px;
+}
+
+.brew-nav-item {
+  border: 1px solid rgba(201, 223, 114, 0.08);
+  background: rgba(18, 63, 53, 0.28);
+  color: var(--text-secondary);
+  padding: 9px 12px;
+  border-radius: 12px;
+  text-align: left;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.brew-nav-item-active {
+  background: rgba(18, 63, 53, 0.68);
+  color: var(--text-primary);
+  border-color: rgba(201, 223, 114, 0.18);
+}
+
+.brew-nav-item-add {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  padding: 4px 0;
+  text-align: left;
+  cursor: pointer;
+  font-size: 0.85em;
+}
+
+.brew-nav-item-add:hover {
+  color: var(--text-primary);
+}
+
+.brew-sidebar-section {
+  margin-top: 16px;
+}
+
+.brew-sidebar-subsection {
+  margin-top: 8px;
+  padding-left: 16px;
+  border-left: 1px solid rgba(201, 223, 114, 0.08);
+}
+
+.brew-nav-label {
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.brew-nav-caret {
+  color: var(--text-muted);
+  font-size: 14px;
+  line-height: 1;
+}
+
+.brew-section-header,
+.brew-topbar,
+.brew-panel-header,
+.brew-card-header,
+.brew-topbar-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.brew-section-header span {
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+}
+
+.brew-link-button,
+.brew-ghost-button {
+  border: 1px solid rgba(201, 223, 114, 0.12);
+  background: rgba(18, 63, 53, 0.42);
+  color: var(--text-secondary);
+  border-radius: 999px;
+}
+
+.brew-link-button {
+  padding: 4px 10px;
+  font-size: 11px;
+}
+
+.brew-ghost-button {
+  padding: 8px 12px;
+  font-size: 12px;
+}
+
+.brew-project-list {
+  margin-top: 8px;
+  display: grid;
+  gap: 8px;
+}
+
+.brew-project-chip {
+  width: 100%;
+  border: 1px solid transparent;
+  background: transparent;
+  padding: 0;
+  border-radius: 10px;
+  text-align: left;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.brew-project-chip-main {
+  flex: 1;
+  min-width: 0;
+  background: transparent;
+  border: none;
+  padding: 7px 8px 7px 12px;
+  text-align: left;
+  position: relative;
+}
+
+.brew-project-chip-menu-wrap {
+  position: relative;
+  flex: 0 0 auto;
+  margin-right: 8px;
+}
+
+.brew-project-chip-menu-button {
+  width: 20px;
+  height: 20px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  border-radius: 999px;
+  font-size: 12px;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.brew-project-chip-menu-button:hover {
+  color: var(--text-primary);
+  background: rgba(201, 223, 114, 0.08);
+}
+
+.brew-project-chip-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  min-width: 132px;
+  padding: 6px;
+  border-radius: 10px;
+  border: 1px solid rgba(201, 223, 114, 0.1);
+  background: rgba(12, 44, 37, 0.98);
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.32);
+  display: grid;
+  gap: 4px;
+  z-index: 10;
+}
+
+.brew-project-chip-menu-item {
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  text-align: left;
+  border-radius: 8px;
+  padding: 7px 8px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.brew-project-chip-menu-item:hover {
+  background: rgba(201, 223, 114, 0.08);
+  color: var(--text-primary);
+}
+
+.brew-project-chip-menu-item-danger:hover {
+  background: rgba(255, 110, 110, 0.12);
+  color: #ff9d9d;
+}
+
+.brew-project-chip-active {
+  background: rgba(18, 63, 53, 0.44);
+  border-color: rgba(201, 223, 114, 0.12);
+}
+
+.brew-project-chip-title {
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.brew-project-chip-active .brew-project-chip-title {
+  color: var(--text-primary);
+}
+
+.brew-project-chip-meta {
+  margin-top: 2px;
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
+.brew-project-branch {
+  position: absolute;
+  left: -17px;
+  top: 15px;
+  width: 10px;
+  height: 1px;
+  background: rgba(201, 223, 114, 0.12);
+}
+
+.brew-project-chip-active .brew-project-chip-meta {
+  color: var(--text-muted);
+}
+
+.brew-main {
+  padding: 26px 26px 34px 0;
+  min-width: 0;
+}
+
+.brew-topbar {
+  min-height: 0;
+  margin-bottom: 6px;
+  display: block;
+}
+
+.brew-hero-card,
+.brew-panel,
+.brew-card,
+.brew-focus-card,
+.brew-empty-block,
+.brew-empty-mini,
+.brew-error-bar {
+  border: 1px solid rgba(201, 223, 114, 0.1);
+  background: var(--surface-panel);
+  box-shadow: var(--shadow-none);
+}
+
+.brew-hero-card {
+  margin-bottom: 16px;
+  padding: 10px 14px;
+  border-radius: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 12px;
+}
+
+.brew-hero-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  min-width: 0;
+}
+
+.brew-stat-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  padding: 0 12px;
+  border: 1px solid rgba(201, 223, 114, 0.1);
+  border-radius: 999px;
+  background: rgba(24, 75, 64, 0.68);
+}
+
+.brew-stat-inline span {
+  color: var(--text-muted);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.brew-stat-inline strong {
+  color: var(--text-primary);
+  font-size: 13px;
+}
+
+.brew-board-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.14fr);
+  gap: 26px;
+}
+
+.brew-project-board-grid {
+  grid-template-columns: minmax(0, 1fr) 320px;
+}
+
+.brew-side-panel {
+  display: grid;
+  align-content: start;
+}
+
+.brew-prpool-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr);
+  gap: 22px;
+  align-items: start;
+}
+
+.brew-prpool-panel {
+  min-height: 560px;
+}
+
+.brew-prpool-panel .brew-pr-card-grid {
+  grid-template-columns: 1fr;
+}
+
+.brew-panel {
+  padding: 26px;
+  border-radius: 22px;
+  border-color: rgba(201, 223, 114, 0.05);
+  background: rgba(10, 37, 31, 0.72);
+}
+
+.brew-board-grid > .brew-panel:first-child,
+.brew-project-board-grid > .brew-panel:first-child {
+  margin-left: 2px;
+}
+
+.brew-panel-compact {
+  min-height: 180px;
+}
+
+.brew-panel h3 {
+  color: var(--text-primary);
+  font-size: 19px;
+  letter-spacing: -0.02em;
+}
+
+.brew-panel-note {
+  color: var(--text-subtle);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.brew-panel-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.brew-panel-header {
+  margin-bottom: 24px;
+}
+
+.brew-card-grid {
+  display: grid;
+  gap: 22px;
+}
+
+.brew-project-card-grid,
+.brew-pr-card-grid,
+.brew-bug-card-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.brew-card {
+  padding: 20px;
+  border-radius: 20px;
+  text-align: left;
+  transition: 0.18s ease;
+  background: var(--surface-card);
+  border-color: rgba(201, 223, 114, 0.12);
+}
+
+.brew-project-card {
+  background: linear-gradient(180deg, rgba(27, 83, 70, 0.92), rgba(20, 67, 57, 0.96));
+}
+
+.brew-status-open,
+.brew-status-reopened {
+  color: var(--warning);
+  border-color: rgba(216, 232, 111, 0.2);
+}
+
+.brew-status-resolved {
+  color: var(--accent-secondary);
+  border-color: rgba(44, 198, 168, 0.2);
+}
+
+.brew-status-needs_human {
+  color: #ff9d5c;
+  border-color: rgba(255, 157, 92, 0.2);
+}
+
+.brew-status-invalid {
+  color: #ff7a7a;
+  border-color: rgba(255, 122, 122, 0.2);
+}
+
+.brew-card:hover {
+  transform: translateY(-1px);
+}
+
+.brew-card-active {
+  background: var(--surface-card-active);
+  border-color: rgba(201, 223, 114, 0.34);
+}
+
+.brew-card-header {
+  align-items: flex-start;
+  margin-bottom: 4px;
+}
+
+.brew-card strong {
+  color: var(--text-primary);
+  font-size: 16px;
+  line-height: 1.35;
+  letter-spacing: -0.02em;
+}
+
+.brew-project-card strong {
+  font-size: 18px;
+}
+
+.brew-card-mark {
+  width: 34px;
+  height: 34px;
+  border-radius: 12px;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(201, 223, 114, 0.24);
+  color: var(--text-primary);
+  background: var(--surface-secondary);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.brew-card-mark-project {
+  background: rgba(213, 230, 122, 0.08);
+  border-color: rgba(213, 230, 122, 0.34);
+}
+
+.brew-card-mark-pr {
+  background: rgba(44, 198, 168, 0.08);
+  border-color: rgba(127, 198, 184, 0.28);
+}
+
+.brew-card-meta {
+  margin: 10px 0 0;
+  color: var(--text-subtle);
+  font-size: 12px;
+  line-height: 1.55;
+  word-break: break-word;
+}
+
+.brew-project-card .brew-card-meta {
+  font-size: 11px;
+}
+
+.brew-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.brew-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 26px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(201, 223, 114, 0.08);
+  background: rgba(12, 44, 37, 0.92);
+  color: var(--text-muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.brew-chip-button {
+  cursor: pointer;
+}
+
+.brew-chip-button:hover {
+  color: var(--text-primary);
+  border-color: rgba(201, 223, 114, 0.18);
+}
+
+.brew-project-card .brew-chip {
+  background: rgba(12, 44, 37, 0.66);
+}
+
+.brew-card-footer {
+  margin-top: 12px;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.brew-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.brew-clear-btn {
+  min-width: 80px;
+  height: 32px;
+  padding: 0 12px;
+  border: 1px solid rgba(255, 122, 122, 0.28);
+  border-radius: 10px;
+  background: rgba(255, 122, 122, 0.08);
+  color: #ff7a7a;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.brew-clear-btn:hover {
+  background: rgba(255, 122, 122, 0.18);
+  border-color: rgba(255, 122, 122, 0.5);
+}
+
+.brew-clear-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.brew-focus-card {
+  padding: 20px;
+  border-radius: 18px;
+  background: rgba(24, 75, 64, 0.82);
+}
+
+.brew-focus-card span {
+  display: block;
+  margin-bottom: 8px;
+  color: var(--text-muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.brew-focus-card strong {
+  display: block;
+  color: var(--text-primary);
+  font-size: 18px;
+  line-height: 1.35;
+}
+
+.brew-focus-card p {
+  margin: 8px 0 0;
+  color: var(--text-subtle);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.brew-status-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 26px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(201, 223, 114, 0.12);
+  background: rgba(12, 44, 37, 0.94);
+  color: var(--text-primary);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.brew-status-open,
+.brew-status-reopened,
+.brew-status-needs_human {
+  color: var(--warning);
+}
+
+.brew-status-resolved,
+.brew-status-completed {
+  color: var(--accent-secondary);
+}
+
+.brew-empty-block,
+.brew-empty-mini {
+  border-radius: 18px;
+  color: var(--text-subtle);
+  background: rgba(18, 63, 53, 0.74);
+}
+
+.brew-empty-block {
+  padding: 22px;
+}
+
+.brew-empty-mini {
+  padding: 12px;
+  font-size: 12px;
+}
+
+.brew-error-bar {
+  margin-top: 14px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  color: var(--warning);
+  background: rgba(18, 63, 53, 0.8);
+}
+
+@media (max-width: 1180px) {
+  .brew-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .brew-sidebar {
+    padding-bottom: 0;
+  }
+
+  .brew-main {
+    padding: 0 18px 24px;
+  }
+
+  .brew-board-grid,
+  .brew-project-board-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .brew-project-card-grid,
+  .brew-pr-card-grid,
+  .brew-bug-card-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .brew-prpool-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 860px) {
+  .brew-topbar,
+  .brew-hero-card {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .brew-hero-stats {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .brew-topbar-actions {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+}

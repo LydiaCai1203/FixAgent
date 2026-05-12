@@ -13,6 +13,18 @@ pub enum OrchestratorError {
 
     #[error("Configuration error: {0}")]
     Config(String),
+
+    #[error("Not found: {0}")]
+    NotFound(String),
+
+    #[error("Git error: {0}")]
+    Git(String),
+
+    #[error("External service error: {0}")]
+    External(String),
+
+    #[error("Validation error: {0}")]
+    Validation(String),
 }
 
 pub type Result<T> = std::result::Result<T, OrchestratorError>;

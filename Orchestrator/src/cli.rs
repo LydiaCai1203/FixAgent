@@ -76,11 +76,11 @@ pub enum Commands {
 
     /// Serve a minimal HTTP API for workflow execution and queries
     ServeHttp {
-        #[arg(long, default_value = "0.0.0.0")]
-        host: String,
+        #[arg(long)]
+        host: Option<String>,
 
-        #[arg(long, default_value_t = 3000)]
-        port: u16,
+        #[arg(long)]
+        port: Option<u16>,
     },
 
     /// Ingest a ReviewAgent JSON result into PostgreSQL

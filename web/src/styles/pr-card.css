@@ -1,0 +1,204 @@
+.brew-pr-card {
+  background: linear-gradient(180deg, rgba(22, 71, 60, 0.9), rgba(16, 56, 47, 0.96));
+  position: relative;
+  overflow: visible;
+  min-height: 182px;
+}
+
+.brew-pr-card-grid {
+  width: 100%;
+  max-width: none;
+  align-content: start;
+}
+
+.brew-pr-card::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg, rgba(213, 230, 122, 0.03), transparent 48%);
+  pointer-events: none;
+}
+
+.brew-pr-card strong {
+  font-size: 17px;
+}
+
+.brew-pr-card-header {
+  margin-bottom: 8px;
+}
+
+.brew-pr-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  position: relative;
+}
+
+.brew-pr-run-button {
+  width: 30px;
+  height: 30px;
+  border-radius: 10px;
+  border: 1px solid rgba(127, 198, 184, 0.28);
+  background: rgba(44, 198, 168, 0.08);
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.brew-pr-run-button:hover {
+  background: rgba(44, 198, 168, 0.16);
+}
+
+.brew-pr-run-button:disabled {
+  opacity: 0.72;
+  cursor: default;
+}
+
+.brew-pr-run-spinner {
+  width: 12px;
+  height: 12px;
+  border-radius: 999px;
+  border: 2px solid rgba(255, 255, 255, 0.22);
+  border-top-color: var(--text-primary);
+  animation: brew-spin 0.8s linear infinite;
+}
+
+.brew-review-popover {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  transform: translateX(-12px);
+  width: 320px;
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(201, 223, 114, 0.12);
+  background: rgba(12, 44, 37, 0.98);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.34);
+  display: grid;
+  gap: 8px;
+  z-index: 20;
+}
+
+.brew-review-popover-line {
+  color: var(--text-subtle);
+  font-size: 12px;
+  line-height: 1.5;
+  word-break: break-word;
+}
+
+.brew-review-popover-line strong {
+  color: var(--text-primary);
+  font-size: 12px;
+}
+
+.brew-review-popover-rounds {
+  display: grid;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.brew-review-popover-round {
+  padding-top: 8px;
+  border-top: 1px solid rgba(201, 223, 114, 0.08);
+}
+
+@keyframes brew-spin {
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.brew-pr-card .brew-card-header,
+.brew-pr-card .brew-card-meta,
+.brew-pr-card .brew-chip-row,
+.brew-pr-card .brew-card-footer {
+  position: relative;
+  z-index: 1;
+}
+
+.brew-pr-card .brew-card-footer {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(201, 223, 114, 0.08);
+}
+
+.brew-pr-card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.brew-pr-status-badge {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  padding: 2px 8px;
+  border-radius: 6px;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.brew-pr-status-open {
+  background: rgba(201, 223, 114, 0.10);
+  color: var(--accent);
+  border: 1px solid rgba(201, 223, 114, 0.22);
+}
+
+.brew-pr-status-ready {
+  background: rgba(44, 198, 168, 0.12);
+  color: #6ee7b7;
+  border: 1px solid rgba(44, 198, 168, 0.30);
+}
+
+.brew-pr-status-toggle {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 10px;
+  border-radius: 6px;
+  border: 1px solid rgba(201, 223, 114, 0.18);
+  background: rgba(201, 223, 114, 0.06);
+  color: var(--text-secondary);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.brew-pr-status-toggle:hover:not(:disabled) {
+  background: rgba(201, 223, 114, 0.14);
+  color: var(--text-primary);
+  border-color: rgba(201, 223, 114, 0.32);
+}
+
+.brew-pr-status-toggle:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.brew-pr-status-toggle-reopen {
+  border-color: rgba(248, 113, 113, 0.22);
+  color: rgba(248, 113, 113, 0.7);
+  background: rgba(248, 113, 113, 0.06);
+}
+
+.brew-pr-status-toggle-reopen:hover:not(:disabled) {
+  background: rgba(248, 113, 113, 0.12);
+  color: #f87171;
+  border-color: rgba(248, 113, 113, 0.36);
+}
+
+.brew-pr-card .brew-card-meta {
+  line-height: 1.6;
+}
+
+.brew-pr-card .brew-chip {
+  background: rgba(12, 44, 37, 0.82);
+}

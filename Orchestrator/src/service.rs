@@ -1,86 +1,42 @@
+use crate::config::{apply_llm_overrides, OrchestratorConfig};
 use crate::db;
 use crate::error::{OrchestratorError, Result};
+use crate::git;
 use crate::models::{
-    IngestReviewResult, IssueSummary, PrStats, ProjectSummary, PullRequestSummary, RunFixResult,
-    RunUntilStableResult, RunWorkflowResult, VerifyFixResult, WorkflowRoundResult,
-    WorkflowRoundSummary, WorkflowRunDetail, WorkflowRunSummary,
+    ClaimedIssueRow, IngestReviewResult, IssueSummary, PrStats, ProjectSummary,
+    PullRequestSummary, RunFixResult, RunUntilStableResult, RunWorkflowResult, VerifyFixResult,
+    WorkflowContext, WorkflowRoundResult, WorkflowRoundSummary, WorkflowRunDetail,
+    WorkflowRunSummary,
 };
 use chrono::Utc;
 use fixagent::models::{FixExecutionStatus, FixTask};
 use fixagent::runner::FixRunner;
+use reviewagent::llm::ReviewResponse;
 use reviewagent::orchestrator::{ReviewInput, ReviewOrchestrator};
 use reviewagent::platform;
-use reviewagent::llm::ReviewResponse;
 use sqlx::PgPool;
 use std::path::PathBuf;
 
 #[derive(Clone)]
 pub struct OrchestratorService {
     pool: PgPool,
+    config: OrchestratorConfig,
 }
 
 impl OrchestratorService {
-    pub async fn new_from_env() -> Result<Self> {
-        let database_url = std::env::var("DATABASE_URL")
-            .map_err(|_| OrchestratorError::Config("DATABASE_URL is required".to_string()))?;
-        let pool = db::connect(&database_url).await?;
-        let service = Self { pool };
+    pub async fn new(config: OrchestratorConfig) -> Result<Self> {
+        let pool = db::connect(&config.database.url).await?;
+        let service = Self { pool, config };
         service.recover_interrupted_runs().await?;
         Ok(service)
     }
 
-    pub async fn run_review(
-        &self,
-        repo_dir: PathBuf,
-        project_key: String,
-        project_name: String,
-        pr_url: String,
-    ) -> Result<IngestReviewResult> {
-        let repo_dir = std::fs::canonicalize(repo_dir)?;
-        let config = load_reviewagent_config(&repo_dir)?;
-        let github_token = config.publish.github_token();
-        let gitlab_token = config.publish.gitlab_token();
-        let gitee_token = config.publish.gitee_token();
-        let gitea_token = config.publish.gitea_token();
-
-        let detected = platform::detect_platform(
-            &pr_url,
-            github_token.as_deref(),
-            gitlab_token.as_deref(),
-            gitee_token.as_deref(),
-            gitea_token.as_deref(),
-        )
-        .map_err(|e| OrchestratorError::Config(e.to_string()))?;
-
-        let review_orchestrator = ReviewOrchestrator::new(config, &repo_dir);
-        let prepared = review_orchestrator
-            .prepare(ReviewInput::Url(pr_url.clone()), Some(detected.as_ref()))
-            .await
-            .map_err(|e| OrchestratorError::Config(e.to_string()))?;
-
-        let result = review_orchestrator
-            .review(&prepared.diff_analysis)
-            .await
-            .map_err(|e| OrchestratorError::Config(e.to_string()))?;
-        let final_review = result.into_final_review();
-
-        let (platform_name, pr_number) = detect_platform_name_and_pr_number(&pr_url)
-            .ok_or_else(|| OrchestratorError::Config("Unable to parse platform or PR number from URL".to_string()))?;
-
-        self.ingest_review_response(
-            project_key,
-            project_name,
-            platform_name,
-            pr_number,
-            pr_url,
-            prepared.diff_analysis.commit_sha,
-            final_review,
-        )
-        .await
-    }
+    // -----------------------------------------------------------------------
+    // Projects
+    // -----------------------------------------------------------------------
 
     pub async fn list_projects(&self) -> Result<Vec<ProjectSummary>> {
-        let rows = sqlx::query_as::<_, (i64, String, String, Option<String>, Option<String>, chrono::DateTime<Utc>, chrono::DateTime<Utc>)>(
+        let rows = sqlx::query_as::<_, ProjectSummary>(
             r#"
             SELECT id, project_key, project_name, repo_url, repo_dir, created_at, updated_at
             FROM projects
@@ -90,24 +46,19 @@ impl OrchestratorService {
         .fetch_all(&self.pool)
         .await?;
 
-        Ok(rows
-            .into_iter()
-            .map(|(id, project_key, project_name, repo_url, repo_dir, created_at, updated_at)| ProjectSummary {
-                id,
-                project_key,
-                project_name,
-                repo_url,
-                repo_dir,
-                created_at,
-                updated_at,
-            })
-            .collect())
+        Ok(rows)
     }
 
-    pub async fn create_project(&self, project_name: String, repo_url: Option<String>) -> Result<ProjectSummary> {
+    pub async fn create_project(
+        &self,
+        project_name: String,
+        repo_url: Option<String>,
+    ) -> Result<ProjectSummary> {
         let project_name = project_name.trim().to_string();
         if project_name.is_empty() {
-            return Err(OrchestratorError::Config("project_name is required".to_string()));
+            return Err(OrchestratorError::Validation(
+                "project_name is required".to_string(),
+            ));
         }
 
         let project_key = build_project_key(&project_name);
@@ -115,22 +66,27 @@ impl OrchestratorService {
         let repo_dir = if let Some(ref url) = repo_url {
             let dir = PathBuf::from("/workspace/repos").join(&project_key);
             let dir_str = dir.to_string_lossy().to_string();
-            tokio::fs::create_dir_all(&dir).await.map_err(|e| OrchestratorError::Io(e))?;
+            tokio::fs::create_dir_all(&dir)
+                .await
+                .map_err(OrchestratorError::Io)?;
             let output = tokio::process::Command::new("git")
                 .args(["clone", "--depth=1", url, &dir_str])
                 .output()
                 .await
-                .map_err(|e| OrchestratorError::Config(format!("git clone failed: {}", e)))?;
+                .map_err(|e| OrchestratorError::Git(format!("git clone failed: {}", e)))?;
             if !output.status.success() {
                 let stderr = String::from_utf8_lossy(&output.stderr);
-                return Err(OrchestratorError::Config(format!("git clone failed: {}", stderr)));
+                return Err(OrchestratorError::Git(format!(
+                    "git clone failed: {}",
+                    stderr
+                )));
             }
             Some(dir_str)
         } else {
             None
         };
 
-        let row = sqlx::query_as::<_, (i64, String, String, Option<String>, Option<String>, chrono::DateTime<Utc>, chrono::DateTime<Utc>)>(
+        let row = sqlx::query_as::<_, ProjectSummary>(
             r#"
             INSERT INTO projects (project_key, project_name, repo_url, repo_dir)
             VALUES ($1, $2, $3, $4)
@@ -146,43 +102,34 @@ impl OrchestratorService {
         .fetch_one(&self.pool)
         .await?;
 
-        Ok(ProjectSummary {
-            id: row.0,
-            project_key: row.1,
-            project_name: row.2,
-            repo_url: row.3,
-            repo_dir: row.4,
-            created_at: row.5,
-            updated_at: row.6,
-        })
+        Ok(row)
     }
 
     pub async fn delete_project(&self, project_key: String) -> Result<()> {
         let project_key = project_key.trim().to_string();
         if project_key.is_empty() {
-            return Err(OrchestratorError::Config("project_key is required".to_string()));
+            return Err(OrchestratorError::Validation(
+                "project_key is required".to_string(),
+            ));
         }
 
         let mut tx = self.pool.begin().await?;
 
         let project_id = sqlx::query_scalar::<_, i64>(
-            r#"
-            SELECT id
-            FROM projects
-            WHERE project_key = $1
-            "#,
+            r#"SELECT id FROM projects WHERE project_key = $1"#,
         )
         .bind(&project_key)
         .fetch_optional(&mut *tx)
         .await?
-        .ok_or_else(|| OrchestratorError::Config(format!("Project not found: {}", project_key)))?;
+        .ok_or_else(|| {
+            OrchestratorError::NotFound(format!("Project not found: {}", project_key))
+        })?;
 
         sqlx::query(
             r#"
             DELETE FROM verifications
             WHERE issue_id IN (
-                SELECT i.id
-                FROM issues i
+                SELECT i.id FROM issues i
                 JOIN pull_requests pr ON pr.id = i.pull_request_id
                 WHERE pr.project_id = $1
             )
@@ -196,8 +143,7 @@ impl OrchestratorService {
             r#"
             DELETE FROM fix_runs
             WHERE issue_id IN (
-                SELECT i.id
-                FROM issues i
+                SELECT i.id FROM issues i
                 JOIN pull_requests pr ON pr.id = i.pull_request_id
                 WHERE pr.project_id = $1
             )
@@ -219,68 +165,34 @@ impl OrchestratorService {
         .execute(&mut *tx)
         .await?;
 
-        sqlx::query(
-            r#"
-            DELETE FROM review_runs
-            WHERE pull_request_id IN (
-                SELECT id FROM pull_requests WHERE project_id = $1
-            )
-            "#,
-        )
-        .bind(project_id)
-        .execute(&mut *tx)
-        .await?;
+        sqlx::query(r#"DELETE FROM review_runs WHERE pull_request_id IN (SELECT id FROM pull_requests WHERE project_id = $1)"#)
+            .bind(project_id)
+            .execute(&mut *tx)
+            .await?;
 
-        sqlx::query(
-            r#"
-            DELETE FROM pull_requests
-            WHERE project_id = $1
-            "#,
-        )
-        .bind(project_id)
-        .execute(&mut *tx)
-        .await?;
+        sqlx::query(r#"DELETE FROM pull_requests WHERE project_id = $1"#)
+            .bind(project_id)
+            .execute(&mut *tx)
+            .await?;
 
-        sqlx::query(
-            r#"
-            DELETE FROM workflow_rounds
-            WHERE workflow_run_id IN (
-                SELECT id FROM workflow_runs WHERE project_key = $1
-            )
-            "#,
-        )
-        .bind(&project_key)
-        .execute(&mut *tx)
-        .await?;
-
-        sqlx::query(
-            r#"
-            DELETE FROM workflow_runs
-            WHERE project_key = $1
-            "#,
-        )
-        .bind(&project_key)
-        .execute(&mut *tx)
-        .await?;
-
-        sqlx::query(
-            r#"
-            DELETE FROM projects
-            WHERE id = $1
-            "#,
-        )
-        .bind(project_id)
-        .execute(&mut *tx)
-        .await?;
+        sqlx::query(r#"DELETE FROM projects WHERE id = $1"#)
+            .bind(project_id)
+            .execute(&mut *tx)
+            .await?;
 
         tx.commit().await?;
         Ok(())
     }
 
-     pub async fn list_prs(&self, project_key: String) -> Result<Vec<PullRequestSummary>> {
-        let rows = sqlx::query_as::<_, (i64, i64, String, i64, String, Option<String>, String, chrono::DateTime<Utc>, chrono::DateTime<Utc>)>(
+    // -----------------------------------------------------------------------
+    // Pull Requests
+    // -----------------------------------------------------------------------
+
+    pub async fn list_prs(&self, project_key: String) -> Result<Vec<PullRequestSummary>> {
+        let rows = sqlx::query_as::<_, PullRequestSummary>(
             r#"
-            SELECT pr.id, pr.project_id, pr.platform, pr.pr_number, pr.pr_url, pr.latest_commit_sha, pr.status, pr.created_at, pr.updated_at
+            SELECT pr.id, pr.project_id, pr.platform, pr.pr_number, pr.pr_url,
+                   pr.latest_commit_sha, pr.status, pr.created_at, pr.updated_at
             FROM pull_requests pr
             JOIN projects p ON p.id = pr.project_id
             WHERE p.project_key = $1
@@ -291,50 +203,45 @@ impl OrchestratorService {
         .fetch_all(&self.pool)
         .await?;
 
-        Ok(rows
-            .into_iter()
-            .map(|(id, project_id, platform, pr_number, pr_url, latest_commit_sha, status, created_at, updated_at)| PullRequestSummary {
-                id,
-                project_id,
-                platform,
-                pr_number,
-                pr_url,
-                latest_commit_sha,
-                status,
-                created_at,
-                updated_at,
-            })
-            .collect())
+        Ok(rows)
     }
 
-    pub async fn create_pr(&self, project_key: String, pr_url: String) -> Result<PullRequestSummary> {
+    pub async fn create_pr(
+        &self,
+        project_key: String,
+        pr_url: String,
+    ) -> Result<PullRequestSummary> {
         let project_key = project_key.trim().to_string();
         let pr_url = pr_url.trim().to_string();
 
         if project_key.is_empty() {
-            return Err(OrchestratorError::Config("project_key is required".to_string()));
+            return Err(OrchestratorError::Validation(
+                "project_key is required".to_string(),
+            ));
         }
         if pr_url.is_empty() {
-            return Err(OrchestratorError::Config("pr_url is required".to_string()));
+            return Err(OrchestratorError::Validation(
+                "pr_url is required".to_string(),
+            ));
         }
 
         let (platform, pr_number) = detect_platform_name_and_pr_number(&pr_url).ok_or_else(|| {
-            OrchestratorError::Config("Unable to parse platform or PR number from URL".to_string())
+            OrchestratorError::Validation(
+                "Unable to parse platform or PR number from URL".to_string(),
+            )
         })?;
 
         let project_id = sqlx::query_scalar::<_, i64>(
-            r#"
-            SELECT id
-            FROM projects
-            WHERE project_key = $1
-            "#,
+            r#"SELECT id FROM projects WHERE project_key = $1"#,
         )
         .bind(&project_key)
         .fetch_optional(&self.pool)
         .await?
-        .ok_or_else(|| OrchestratorError::Config(format!("Project not found: {}", project_key)))?;
+        .ok_or_else(|| {
+            OrchestratorError::NotFound(format!("Project not found: {}", project_key))
+        })?;
 
-        let row = sqlx::query_as::<_, (i64, i64, String, i64, String, Option<String>, String, chrono::DateTime<Utc>, chrono::DateTime<Utc>)>(
+        let row = sqlx::query_as::<_, PullRequestSummary>(
             r#"
             INSERT INTO pull_requests (project_id, platform, pr_number, pr_url, latest_commit_sha)
             VALUES ($1, $2, $3, $4, NULL)
@@ -350,18 +257,60 @@ impl OrchestratorService {
         .fetch_one(&self.pool)
         .await?;
 
-        Ok(PullRequestSummary {
-            id: row.0,
-            project_id: row.1,
-            platform: row.2,
-            pr_number: row.3,
-            pr_url: row.4,
-            latest_commit_sha: row.5,
-            status: row.6,
-            created_at: row.7,
-            updated_at: row.8,
-        })
+        Ok(row)
     }
+
+    /// Update a PR's status. When transitioning to `ready_to_merge`, squash all
+    /// FixAgent commits in the branch into a single commit and force-push.
+    pub async fn set_pr_status(
+        &self,
+        pr_id: i64,
+        new_status: String,
+    ) -> Result<PullRequestSummary> {
+        let new_status = new_status.trim().to_lowercase();
+        if new_status != "open" && new_status != "ready_to_merge" {
+            return Err(OrchestratorError::Validation(format!(
+                "Unsupported PR status: {}. Must be 'open' or 'ready_to_merge'.",
+                new_status
+            )));
+        }
+
+        let current = sqlx::query_as::<_, PullRequestSummary>(
+            r#"
+            SELECT id, project_id, platform, pr_number, pr_url, latest_commit_sha, status, created_at, updated_at
+            FROM pull_requests WHERE id = $1
+            "#,
+        )
+        .bind(pr_id)
+        .fetch_optional(&self.pool)
+        .await?
+        .ok_or_else(|| OrchestratorError::NotFound(format!("PR not found: {}", pr_id)))?;
+
+        if new_status == "ready_to_merge" && current.status != "ready_to_merge" {
+            if let Some(repo_dir) = self.get_project_repo_dir_for_pr(pr_id).await? {
+                git::squash_fix_commits(&repo_dir).await?;
+            }
+        }
+
+        let updated = sqlx::query_as::<_, PullRequestSummary>(
+            r#"
+            UPDATE pull_requests
+            SET status = $2, updated_at = NOW()
+            WHERE id = $1
+            RETURNING id, project_id, platform, pr_number, pr_url, latest_commit_sha, status, created_at, updated_at
+            "#,
+        )
+        .bind(pr_id)
+        .bind(&new_status)
+        .fetch_one(&self.pool)
+        .await?;
+
+        Ok(updated)
+    }
+
+    // -----------------------------------------------------------------------
+    // Issues
+    // -----------------------------------------------------------------------
 
     pub async fn list_issues(
         &self,
@@ -373,26 +322,11 @@ impl OrchestratorService {
         let rows = sqlx::query_as::<_, IssueSummary>(
             r#"
             SELECT
-                i.id,
-                p.project_key,
-                p.project_name,
-                pr.platform,
-                pr.pr_number,
-                i.pull_request_id,
-                i.review_run_id,
-                i.severity,
-                i.file_path,
-                i.start_line,
-                i.end_line,
-                i.title,
-                i.description,
-                i.suggestion,
-                i.suggestion_code,
-                i.original_code,
-                i.status,
-                i.confidence,
-                i.created_at,
-                i.updated_at,
+                i.id, p.project_key, p.project_name, pr.platform, pr.pr_number,
+                i.pull_request_id, i.review_run_id, i.severity, i.file_path,
+                i.start_line, i.end_line, i.title, i.description, i.suggestion,
+                i.suggestion_code, i.original_code, i.status, i.confidence,
+                i.created_at, i.updated_at,
                 fr.replacement_preview AS fix_replacement_preview,
                 fr.commit_sha AS fix_commit_sha,
                 pr.pr_url
@@ -428,9 +362,16 @@ impl OrchestratorService {
         issue_id: i64,
         new_status: String,
     ) -> Result<IssueSummary> {
-        let valid_statuses = ["open", "reopened", "resolved", "needs_human", "invalid", "claimed"];
+        let valid_statuses = [
+            "open",
+            "reopened",
+            "resolved",
+            "needs_human",
+            "invalid",
+            "claimed",
+        ];
         if !valid_statuses.contains(&new_status.as_str()) {
-            return Err(OrchestratorError::Config(format!(
+            return Err(OrchestratorError::Validation(format!(
                 "Invalid status '{}'. Valid statuses are: {:?}",
                 new_status, valid_statuses
             )));
@@ -439,33 +380,17 @@ impl OrchestratorService {
         let row = sqlx::query_as::<_, IssueSummary>(
             r#"
             UPDATE issues i
-            SET status = $1,
-                updated_at = NOW()
+            SET status = $1, updated_at = NOW()
             FROM pull_requests pr, projects p
             WHERE i.id = $2
               AND pr.id = i.pull_request_id
               AND p.id = pr.project_id
             RETURNING
-                i.id,
-                p.project_key,
-                p.project_name,
-                pr.platform,
-                pr.pr_number,
-                i.pull_request_id,
-                i.review_run_id,
-                i.severity,
-                i.file_path,
-                i.start_line,
-                i.end_line,
-                i.title,
-                i.description,
-                i.suggestion,
-                i.suggestion_code,
-                i.original_code,
-                i.status,
-                i.confidence,
-                i.created_at,
-                i.updated_at,
+                i.id, p.project_key, p.project_name, pr.platform, pr.pr_number,
+                i.pull_request_id, i.review_run_id, i.severity, i.file_path,
+                i.start_line, i.end_line, i.title, i.description, i.suggestion,
+                i.suggestion_code, i.original_code, i.status, i.confidence,
+                i.created_at, i.updated_at,
                 NULL::text AS fix_replacement_preview,
                 NULL::text AS fix_commit_sha,
                 pr.pr_url
@@ -475,7 +400,7 @@ impl OrchestratorService {
         .bind(issue_id)
         .fetch_optional(&self.pool)
         .await?
-        .ok_or_else(|| OrchestratorError::Config(format!("Issue not found: {}", issue_id)))?;
+        .ok_or_else(|| OrchestratorError::NotFound(format!("Issue not found: {}", issue_id)))?;
 
         Ok(row)
     }
@@ -488,26 +413,32 @@ impl OrchestratorService {
         Ok(())
     }
 
+    // -----------------------------------------------------------------------
+    // Workflows
+    // -----------------------------------------------------------------------
+
     pub async fn list_workflows(
         &self,
         project_key: Option<String>,
     ) -> Result<Vec<WorkflowRunSummary>> {
-        let rows = if let Some(project_key) = project_key {
-            sqlx::query_as::<_, (i64, String, String, String, i64, String, String, Option<String>, i32, Option<String>, chrono::DateTime<Utc>, Option<chrono::DateTime<Utc>>)>(
+        let rows = if let Some(ref pk) = project_key {
+            sqlx::query_as::<_, WorkflowRunSummary>(
                 r#"
-                SELECT id, project_key, project_name, platform, pr_number, pr_url, status, stop_reason, max_rounds, summary, started_at, completed_at
+                SELECT id, project_key, project_name, platform, pr_number, pr_url,
+                       status, stop_reason, max_rounds, summary, started_at, completed_at
                 FROM workflow_runs
                 WHERE project_key = $1
                 ORDER BY started_at DESC, id DESC
                 "#,
             )
-            .bind(project_key)
+            .bind(pk)
             .fetch_all(&self.pool)
             .await?
         } else {
-            sqlx::query_as::<_, (i64, String, String, String, i64, String, String, Option<String>, i32, Option<String>, chrono::DateTime<Utc>, Option<chrono::DateTime<Utc>>)>(
+            sqlx::query_as::<_, WorkflowRunSummary>(
                 r#"
-                SELECT id, project_key, project_name, platform, pr_number, pr_url, status, stop_reason, max_rounds, summary, started_at, completed_at
+                SELECT id, project_key, project_name, platform, pr_number, pr_url,
+                       status, stop_reason, max_rounds, summary, started_at, completed_at
                 FROM workflow_runs
                 ORDER BY started_at DESC, id DESC
                 "#,
@@ -516,23 +447,7 @@ impl OrchestratorService {
             .await?
         };
 
-        Ok(rows
-            .into_iter()
-            .map(|(id, project_key, project_name, platform, pr_number, pr_url, status, stop_reason, max_rounds, summary, started_at, completed_at)| WorkflowRunSummary {
-                id,
-                project_key,
-                project_name,
-                platform,
-                pr_number,
-                pr_url,
-                status,
-                stop_reason,
-                max_rounds,
-                summary,
-                started_at,
-                completed_at,
-            })
-            .collect())
+        Ok(rows)
     }
 
     pub async fn workflow_detail(&self, workflow_run_id: i64) -> Result<WorkflowRunDetail> {
@@ -545,9 +460,11 @@ impl OrchestratorService {
         &self,
         workflow_run_id: i64,
     ) -> Result<Vec<WorkflowRoundSummary>> {
-        let rows = sqlx::query_as::<_, (i64, i64, i32, Option<i64>, Option<i64>, Option<i64>, Option<i64>, String, Option<String>, Option<String>, chrono::DateTime<Utc>, Option<chrono::DateTime<Utc>>)>(
+        let rows = sqlx::query_as::<_, WorkflowRoundSummary>(
             r#"
-            SELECT id, workflow_run_id, round_number, review_run_id, issue_id, fix_run_id, verification_id, status, stop_reason, summary, started_at, completed_at
+            SELECT id, workflow_run_id, round_number, review_run_id, issue_id,
+                   fix_run_id, verification_id, status, stop_reason, summary,
+                   started_at, completed_at
             FROM workflow_rounds
             WHERE workflow_run_id = $1
             ORDER BY round_number ASC, id ASC
@@ -557,23 +474,7 @@ impl OrchestratorService {
         .fetch_all(&self.pool)
         .await?;
 
-        Ok(rows
-            .into_iter()
-            .map(|(id, workflow_run_id, round_number, review_run_id, issue_id, fix_run_id, verification_id, status, stop_reason, summary, started_at, completed_at)| WorkflowRoundSummary {
-                id,
-                workflow_run_id,
-                round_number,
-                review_run_id,
-                issue_id,
-                fix_run_id,
-                verification_id,
-                status,
-                stop_reason,
-                summary,
-                started_at,
-                completed_at,
-            })
-            .collect())
+        Ok(rows)
     }
 
     pub async fn pr_stats(
@@ -612,7 +513,7 @@ impl OrchestratorService {
             .fetch_optional(&self.pool)
             .await?
             .ok_or_else(|| {
-                OrchestratorError::Config(format!(
+                OrchestratorError::NotFound(format!(
                     "PR/MR not found for project_key={}, platform={}, pr_number={}",
                     project_key, platform, pr_number
                 ))
@@ -634,6 +535,156 @@ impl OrchestratorService {
         })
     }
 
+    // -----------------------------------------------------------------------
+    // Review
+    // -----------------------------------------------------------------------
+
+    pub async fn run_review(
+        &self,
+        repo_dir: PathBuf,
+        project_key: String,
+        project_name: String,
+        pr_url: String,
+    ) -> Result<IngestReviewResult> {
+        let repo_dir = std::fs::canonicalize(repo_dir)?;
+        let mut config = load_reviewagent_config(&repo_dir)?;
+
+        // Apply LLM overrides from orchestrator config
+        if let Some(overrides) = self.config.to_reviewagent_llm_overrides() {
+            apply_llm_overrides(&mut config, &overrides);
+        }
+
+        let github_token = config.publish.github_token();
+        let gitlab_token = config.publish.gitlab_token();
+        let gitee_token = config.publish.gitee_token();
+        let gitea_token = config.publish.gitea_token();
+
+        let detected = platform::detect_platform(
+            &pr_url,
+            github_token.as_deref(),
+            gitlab_token.as_deref(),
+            gitee_token.as_deref(),
+            gitea_token.as_deref(),
+        )
+        .map_err(|e| OrchestratorError::External(e.to_string()))?;
+
+        let review_orchestrator = ReviewOrchestrator::new(config, &repo_dir);
+        let prepared = review_orchestrator
+            .prepare(ReviewInput::Url(pr_url.clone()), Some(detected.as_ref()))
+            .await
+            .map_err(|e| OrchestratorError::External(e.to_string()))?;
+
+        let result = review_orchestrator
+            .review(&prepared.diff_analysis)
+            .await
+            .map_err(|e| OrchestratorError::External(e.to_string()))?;
+        let final_review = result.into_final_review();
+
+        let (platform_name, pr_number) =
+            detect_platform_name_and_pr_number(&pr_url).ok_or_else(|| {
+                OrchestratorError::Validation(
+                    "Unable to parse platform or PR number from URL".to_string(),
+                )
+            })?;
+
+        self.ingest_review_response(
+            project_key,
+            project_name,
+            platform_name,
+            pr_number,
+            pr_url,
+            prepared.diff_analysis.commit_sha,
+            final_review,
+        )
+        .await
+    }
+
+    pub async fn start_review_run(
+        &self,
+        project_key: String,
+        project_name: String,
+        pr_url: String,
+    ) -> Result<i64> {
+        let (platform, pr_number) =
+            detect_platform_name_and_pr_number(&pr_url).ok_or_else(|| {
+                OrchestratorError::Validation(
+                    "Unable to parse platform or PR number from URL".to_string(),
+                )
+            })?;
+
+        let workflow_run_id: i64 = sqlx::query_scalar(
+            r#"
+            INSERT INTO workflow_runs (
+                project_key, project_name, platform, pr_number, pr_url,
+                status, max_rounds, summary
+            ) VALUES ($1, $2, $3, $4, $5, 'running', 1, $6)
+            RETURNING id
+            "#,
+        )
+        .bind(&project_key)
+        .bind(&project_name)
+        .bind(&platform)
+        .bind(pr_number)
+        .bind(&pr_url)
+        .bind("Review task accepted and waiting to start.")
+        .fetch_one(&self.pool)
+        .await?;
+
+        Ok(workflow_run_id)
+    }
+
+    pub async fn execute_review_run(
+        &self,
+        workflow_run_id: i64,
+        repo_dir: PathBuf,
+        project_key: String,
+        project_name: String,
+        pr_url: String,
+    ) -> Result<IngestReviewResult> {
+        self.insert_or_update_round(workflow_run_id, 1, "ReviewAgent is analyzing the PR diff.")
+            .await?;
+
+        self.update_workflow_progress(
+            workflow_run_id,
+            Some("ReviewAgent is analyzing the PR diff."),
+            Some(1),
+            "ReviewAgent is analyzing the PR diff.",
+        )
+        .await?;
+
+        let review = match self
+            .run_review(repo_dir, project_key, project_name, pr_url)
+            .await
+        {
+            Ok(review) => review,
+            Err(error) => {
+                self.fail_round(workflow_run_id, 1, &error.to_string())
+                    .await?;
+                return Err(error);
+            }
+        };
+
+        self.complete_round_review(workflow_run_id, 1, review.review_run_id)
+            .await?;
+
+        self.finish_workflow_run(
+            workflow_run_id,
+            "completed",
+            "review_completed",
+            Some(&format!(
+                "ReviewAgent completed review_run_id={} and refreshed the issue pool.",
+                review.review_run_id
+            )),
+        )
+        .await?;
+
+        Ok(review)
+    }
+
+    // -----------------------------------------------------------------------
+    // Workflow execution
+    // -----------------------------------------------------------------------
+
     pub async fn run_workflow(
         &self,
         repo_dir: PathBuf,
@@ -652,8 +703,12 @@ impl OrchestratorService {
             )
             .await?;
 
-        let (platform, pr_number) = detect_platform_name_and_pr_number(&pr_url)
-            .ok_or_else(|| OrchestratorError::Config("Unable to parse platform or PR number from URL".to_string()))?;
+        let (platform, pr_number) =
+            detect_platform_name_and_pr_number(&pr_url).ok_or_else(|| {
+                OrchestratorError::Validation(
+                    "Unable to parse platform or PR number from URL".to_string(),
+                )
+            })?;
 
         let fix = match self
             .run_fix_for_next_issue(
@@ -667,7 +722,7 @@ impl OrchestratorService {
             .await
         {
             Ok(result) => Some(result),
-            Err(OrchestratorError::Config(msg)) if msg.contains("No open issue found") => None,
+            Err(OrchestratorError::NotFound(msg)) if msg.contains("No open issue found") => None,
             Err(e) => return Err(e),
         };
 
@@ -730,173 +785,6 @@ impl OrchestratorService {
         .await
     }
 
-    pub async fn get_project_repo_dir(&self, project_key: &str) -> Result<Option<PathBuf>> {
-        let repo_dir: Option<String> = sqlx::query_scalar(
-            r#"SELECT repo_dir FROM projects WHERE project_key = $1"#,
-        )
-        .bind(project_key)
-        .fetch_optional(&self.pool)
-        .await?;
-
-        Ok(repo_dir.map(PathBuf::from))
-    }
-
-    pub async fn get_project_repo_dir_for_issue(&self, issue_id: i64) -> Result<Option<PathBuf>> {
-        let repo_dir: Option<String> = sqlx::query_scalar(
-            r#"
-            SELECT p.repo_dir
-            FROM issues i
-            JOIN pull_requests pr ON pr.id = i.pull_request_id
-            JOIN projects p ON p.id = pr.project_id
-            WHERE i.id = $1
-            "#,
-        )
-        .bind(issue_id)
-        .fetch_optional(&self.pool)
-        .await?;
-
-        Ok(repo_dir.map(PathBuf::from))
-    }
-
-    pub async fn get_project_repo_dir_for_pr(&self, pr_id: i64) -> Result<Option<PathBuf>> {
-        let repo_dir: Option<String> = sqlx::query_scalar(
-            r#"
-            SELECT p.repo_dir
-            FROM pull_requests pr
-            JOIN projects p ON p.id = pr.project_id
-            WHERE pr.id = $1
-            "#,
-        )
-        .bind(pr_id)
-        .fetch_optional(&self.pool)
-        .await?;
-
-        Ok(repo_dir.map(PathBuf::from))
-    }
-
-    pub async fn start_review_run(
-        &self,
-        project_key: String,
-        project_name: String,
-        pr_url: String,
-    ) -> Result<i64> {
-        let (platform, pr_number) = detect_platform_name_and_pr_number(&pr_url).ok_or_else(|| {
-            OrchestratorError::Config("Unable to parse platform or PR number from URL".to_string())
-        })?;
-
-        let workflow_run_id: i64 = sqlx::query_scalar(
-            r#"
-            INSERT INTO workflow_runs (
-                project_key,
-                project_name,
-                platform,
-                pr_number,
-                pr_url,
-                status,
-                max_rounds,
-                summary
-            ) VALUES ($1, $2, $3, $4, $5, 'running', 1, $6)
-            RETURNING id
-            "#,
-        )
-        .bind(&project_key)
-        .bind(&project_name)
-        .bind(&platform)
-        .bind(pr_number)
-        .bind(&pr_url)
-        .bind("Review task accepted and waiting to start.")
-        .fetch_one(&self.pool)
-        .await?;
-
-        Ok(workflow_run_id)
-    }
-
-    pub async fn execute_review_run(
-        &self,
-        workflow_run_id: i64,
-        repo_dir: PathBuf,
-        project_key: String,
-        project_name: String,
-        pr_url: String,
-    ) -> Result<IngestReviewResult> {
-        sqlx::query(
-            r#"
-            INSERT INTO workflow_rounds (workflow_run_id, round_number, status, summary)
-            VALUES ($1, 1, 'running', $2)
-            ON CONFLICT (workflow_run_id, round_number)
-            DO UPDATE SET status = EXCLUDED.status, summary = EXCLUDED.summary, completed_at = NULL
-            "#,
-        )
-        .bind(workflow_run_id)
-        .bind("ReviewAgent is analyzing the PR diff.")
-        .execute(&self.pool)
-        .await?;
-
-        self.update_workflow_progress(
-            workflow_run_id,
-            Some("ReviewAgent is analyzing the PR diff."),
-            Some(1),
-            "ReviewAgent is analyzing the PR diff.",
-        )
-        .await?;
-
-        let review = match self.run_review(repo_dir, project_key, project_name, pr_url).await {
-            Ok(review) => review,
-            Err(error) => {
-                sqlx::query(
-                    r#"
-                    UPDATE workflow_rounds
-                    SET status = 'failed',
-                        stop_reason = 'execution_failed',
-                        summary = $2,
-                        completed_at = NOW()
-                    WHERE workflow_run_id = $1 AND round_number = 1
-                    "#,
-                )
-                .bind(workflow_run_id)
-                .bind(error.to_string())
-                .execute(&self.pool)
-                .await?;
-
-                return Err(error);
-            }
-        };
-
-        sqlx::query(
-            r#"
-            UPDATE workflow_rounds
-            SET review_run_id = $3,
-                status = 'completed',
-                stop_reason = 'review_completed',
-                summary = $4,
-                completed_at = NOW()
-            WHERE workflow_run_id = $1 AND round_number = $2
-            "#,
-        )
-        .bind(workflow_run_id)
-        .bind(1)
-        .bind(review.review_run_id)
-        .bind(format!(
-            "ReviewAgent completed review_run_id={} and refreshed the issue pool.",
-            review.review_run_id
-        ))
-        .execute(&self.pool)
-        .await?;
-
-        self.finish_workflow_run(
-            workflow_run_id,
-            "completed",
-            "review_completed",
-            Some(&format!(
-                "ReviewAgent completed review_run_id={} and refreshed the issue pool.",
-                review.review_run_id
-            )),
-        )
-        .await?;
-
-        Ok(review)
-    }
-
     pub async fn start_workflow(
         &self,
         project_key: String,
@@ -905,26 +793,23 @@ impl OrchestratorService {
         max_rounds: i32,
     ) -> Result<i64> {
         if max_rounds <= 0 {
-            return Err(OrchestratorError::Config(
+            return Err(OrchestratorError::Validation(
                 "max_rounds must be greater than 0".to_string(),
             ));
         }
 
-        let (platform, pr_number) = detect_platform_name_and_pr_number(&pr_url).ok_or_else(|| {
-            OrchestratorError::Config("Unable to parse platform or PR number from URL".to_string())
-        })?;
+        let (platform, pr_number) =
+            detect_platform_name_and_pr_number(&pr_url).ok_or_else(|| {
+                OrchestratorError::Validation(
+                    "Unable to parse platform or PR number from URL".to_string(),
+                )
+            })?;
 
         let workflow_run_id: i64 = sqlx::query_scalar(
             r#"
             INSERT INTO workflow_runs (
-                project_key,
-                project_name,
-                platform,
-                pr_number,
-                pr_url,
-                status,
-                max_rounds,
-                summary
+                project_key, project_name, platform, pr_number, pr_url,
+                status, max_rounds, summary
             ) VALUES ($1, $2, $3, $4, $5, 'running', $6, $7)
             RETURNING id
             "#,
@@ -942,6 +827,7 @@ impl OrchestratorService {
         Ok(workflow_run_id)
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn execute_workflow_run(
         &self,
         workflow_run_id: i64,
@@ -953,10 +839,16 @@ impl OrchestratorService {
         max_rounds: i32,
         dry_run: bool,
     ) -> Result<RunUntilStableResult> {
-        let started_at = self.workflow_run_summary(workflow_run_id).await?.started_at;
-        let (platform, pr_number) = detect_platform_name_and_pr_number(&pr_url).ok_or_else(|| {
-            OrchestratorError::Config("Unable to parse platform or PR number from URL".to_string())
-        })?;
+        let started_at = self
+            .workflow_run_summary(workflow_run_id)
+            .await?
+            .started_at;
+        let (platform, pr_number) =
+            detect_platform_name_and_pr_number(&pr_url).ok_or_else(|| {
+                OrchestratorError::Validation(
+                    "Unable to parse platform or PR number from URL".to_string(),
+                )
+            })?;
 
         let mut rounds = Vec::new();
         let mut final_status = "completed".to_string();
@@ -979,15 +871,24 @@ impl OrchestratorService {
             )
             .bind(workflow_run_id)
             .bind(round_number)
-            .bind(format!("Round {}: ReviewAgent is analyzing the PR diff.", round_number))
+            .bind(format!(
+                "Round {}: ReviewAgent is analyzing the PR diff.",
+                round_number
+            ))
             .execute(&self.pool)
             .await?;
 
             self.update_workflow_progress(
                 workflow_run_id,
-                Some(&format!("Round {}: ReviewAgent is analyzing the PR diff.", round_number)),
+                Some(&format!(
+                    "Round {}: ReviewAgent is analyzing the PR diff.",
+                    round_number
+                )),
                 Some(round_number),
-                &format!("Round {}: ReviewAgent is analyzing the PR diff.", round_number),
+                &format!(
+                    "Round {}: ReviewAgent is analyzing the PR diff.",
+                    round_number
+                ),
             )
             .await?;
 
@@ -1025,11 +926,7 @@ impl OrchestratorService {
                 sqlx::query(
                     r#"
                     UPDATE workflow_rounds
-                    SET review_run_id = $3,
-                        status = 'completed',
-                        stop_reason = $4,
-                        summary = $5,
-                        completed_at = NOW()
+                    SET review_run_id = $3, status = 'completed', stop_reason = $4, summary = $5, completed_at = NOW()
                     WHERE workflow_run_id = $1 AND round_number = $2
                     "#,
                 )
@@ -1073,7 +970,8 @@ impl OrchestratorService {
                     max_rounds,
                     completed_rounds: rounds.len() as i32,
                     rounds,
-                    summary: "Workflow converged with no important open issues remaining.".to_string(),
+                    summary: "Workflow converged with no important open issues remaining."
+                        .to_string(),
                     started_at,
                     completed_at: Utc::now(),
                 });
@@ -1169,14 +1067,8 @@ impl OrchestratorService {
             sqlx::query(
                 r#"
                 UPDATE workflow_rounds
-                SET review_run_id = $3,
-                    issue_id = $4,
-                    fix_run_id = $5,
-                    verification_id = $6,
-                    status = 'completed',
-                    stop_reason = $7,
-                    summary = $8,
-                    completed_at = NOW()
+                SET review_run_id = $3, issue_id = $4, fix_run_id = $5, verification_id = $6,
+                    status = 'completed', stop_reason = $7, summary = $8, completed_at = NOW()
                 WHERE workflow_run_id = $1 AND round_number = $2
                 "#,
             )
@@ -1266,7 +1158,11 @@ impl OrchestratorService {
         })
     }
 
-    pub async fn mark_workflow_failed(&self, workflow_run_id: i64, error_message: &str) -> Result<()> {
+    pub async fn mark_workflow_failed(
+        &self,
+        workflow_run_id: i64,
+        error_message: &str,
+    ) -> Result<()> {
         self.finish_workflow_run(
             workflow_run_id,
             "failed",
@@ -1275,6 +1171,10 @@ impl OrchestratorService {
         )
         .await
     }
+
+    // -----------------------------------------------------------------------
+    // Ingest review
+    // -----------------------------------------------------------------------
 
     #[allow(clippy::too_many_arguments)]
     pub async fn ingest_review(
@@ -1313,15 +1213,13 @@ impl OrchestratorService {
         commit_sha: Option<String>,
         review: ReviewResponse,
     ) -> Result<IngestReviewResult> {
-
         let mut tx = self.pool.begin().await?;
 
         let project_id: i64 = sqlx::query_scalar(
             r#"
             INSERT INTO projects (project_key, project_name)
             VALUES ($1, $2)
-            ON CONFLICT (project_key)
-            DO UPDATE SET project_name = EXCLUDED.project_name, updated_at = NOW()
+            ON CONFLICT (project_key) DO UPDATE SET project_name = EXCLUDED.project_name, updated_at = NOW()
             RETURNING id
             "#,
         )
@@ -1335,9 +1233,7 @@ impl OrchestratorService {
             INSERT INTO pull_requests (project_id, platform, pr_number, pr_url, latest_commit_sha)
             VALUES ($1, $2, $3, $4, $5)
             ON CONFLICT (project_id, platform, pr_number)
-            DO UPDATE SET pr_url = EXCLUDED.pr_url,
-                          latest_commit_sha = EXCLUDED.latest_commit_sha,
-                          updated_at = NOW()
+            DO UPDATE SET pr_url = EXCLUDED.pr_url, latest_commit_sha = EXCLUDED.latest_commit_sha, updated_at = NOW()
             RETURNING id
             "#,
         )
@@ -1368,21 +1264,9 @@ impl OrchestratorService {
             sqlx::query(
                 r#"
                 INSERT INTO issues (
-                    pull_request_id,
-                    review_run_id,
-                    fingerprint,
-                    severity,
-                    file_path,
-                    start_line,
-                    end_line,
-                    title,
-                    description,
-                    suggestion,
-                    suggestion_code,
-                    original_code,
-                    confidence,
-                    status,
-                    source_bot
+                    pull_request_id, review_run_id, fingerprint, severity, file_path,
+                    start_line, end_line, title, description, suggestion,
+                    suggestion_code, original_code, confidence, status, source_bot
                 ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, 'open', 'reviewagent')
                 ON CONFLICT (pull_request_id, fingerprint)
                 DO UPDATE SET
@@ -1428,6 +1312,10 @@ impl OrchestratorService {
         })
     }
 
+    // -----------------------------------------------------------------------
+    // Fix execution
+    // -----------------------------------------------------------------------
+
     pub async fn run_fix_for_next_issue(
         &self,
         repo_dir: PathBuf,
@@ -1439,13 +1327,10 @@ impl OrchestratorService {
     ) -> Result<RunFixResult> {
         let mut tx = self.pool.begin().await?;
 
-        let row = sqlx::query_as::<_, (i64, i64, String, String, i64, i64, String, String, String, Option<String>, Option<String>, Option<i32>)>(
+        let row = sqlx::query_as::<_, ClaimedIssueRow>(
             r#"
             UPDATE issues i
-            SET status = 'claimed',
-                claimed_by = $1,
-                claimed_at = NOW(),
-                updated_at = NOW()
+            SET status = 'claimed', claimed_by = $1, claimed_at = NOW(), updated_at = NOW()
             WHERE i.id = (
                 SELECT i2.id
                 FROM issues i2
@@ -1456,17 +1341,14 @@ impl OrchestratorService {
                   AND pr.pr_number = $4
                   AND i2.status IN ('open', 'reopened')
                 ORDER BY
-                  CASE i2.severity
-                    WHEN 'critical' THEN 1
-                    WHEN 'warning' THEN 2
-                    ELSE 3
-                  END,
+                  CASE i2.severity WHEN 'critical' THEN 1 WHEN 'warning' THEN 2 ELSE 3 END,
                   COALESCE(i2.confidence, 0) DESC,
                   i2.updated_at DESC
                 LIMIT 1
                 FOR UPDATE SKIP LOCKED
             )
-            RETURNING i.id, i.pull_request_id, i.severity, i.file_path, i.start_line, i.end_line, i.title, i.description, i.suggestion, i.suggestion_code, i.original_code, i.confidence
+            RETURNING i.id, i.pull_request_id, i.severity, i.file_path, i.start_line, i.end_line,
+                      i.title, i.description, i.suggestion, i.suggestion_code, i.original_code, i.confidence
             "#,
         )
         .bind(&claimed_by)
@@ -1474,30 +1356,16 @@ impl OrchestratorService {
         .bind(&platform)
         .bind(pr_number)
         .fetch_optional(&mut *tx)
-        .await?;
-
-        let (issue_id, pull_request_id, severity, file_path, start_line, end_line, title, description, suggestion, suggestion_code, original_code, confidence) =
-            row.ok_or_else(|| OrchestratorError::Config("No open issue found for the specified PR/MR".to_string()))?;
+        .await?
+        .ok_or_else(|| {
+            OrchestratorError::NotFound(
+                "No open issue found for the specified PR/MR".to_string(),
+            )
+        })?;
 
         tx.commit().await?;
 
-        self.execute_fix_for_issue_data(
-            repo_dir,
-            issue_id,
-            pull_request_id,
-            severity,
-            file_path,
-            start_line,
-            end_line,
-            title,
-            description,
-            suggestion,
-            suggestion_code,
-            original_code,
-            confidence,
-            dry_run,
-        )
-        .await
+        self.execute_fix_for_issue(repo_dir, row, dry_run).await
     }
 
     pub async fn start_issue_fix_run(
@@ -1507,9 +1375,14 @@ impl OrchestratorService {
         claimed_by: String,
         dry_run: bool,
     ) -> Result<i64> {
-        let (project_key, project_name, _platform, _pr_number, pr_url) = self.issue_workflow_context(issue_id).await?;
+        let ctx = self.issue_workflow_context(issue_id).await?;
         let workflow_run_id = self
-            .start_workflow(project_key.clone(), project_name, pr_url, 1)
+            .start_workflow(
+                ctx.project_key.clone(),
+                ctx.project_name,
+                ctx.pr_url,
+                1,
+            )
             .await?;
 
         let background_service = self.clone();
@@ -1533,10 +1406,15 @@ impl OrchestratorService {
         claimed_by: String,
         dry_run: bool,
     ) -> Result<i64> {
-        let (project_key, project_name, _platform, _pr_number, pr_url) = self.pr_workflow_context(pr_id).await?;
+        let ctx = self.pr_workflow_context(pr_id).await?;
         let issue_ids = self.open_issue_ids_for_pr(pr_id).await?;
         let workflow_run_id = self
-            .start_workflow(project_key.clone(), project_name, pr_url, issue_ids.len().max(1) as i32)
+            .start_workflow(
+                ctx.project_key.clone(),
+                ctx.project_name,
+                ctx.pr_url,
+                issue_ids.len().max(1) as i32,
+            )
             .await?;
 
         let background_service = self.clone();
@@ -1553,6 +1431,10 @@ impl OrchestratorService {
 
         Ok(workflow_run_id)
     }
+
+    // -----------------------------------------------------------------------
+    // Verification
+    // -----------------------------------------------------------------------
 
     #[allow(clippy::too_many_arguments)]
     pub async fn verify_fix(
@@ -1571,11 +1453,8 @@ impl OrchestratorService {
 
         let fix_run_id: i64 = sqlx::query_scalar(
             r#"
-            SELECT id
-            FROM fix_runs
-            WHERE issue_id = $1
-            ORDER BY created_at DESC
-            LIMIT 1
+            SELECT id FROM fix_runs WHERE issue_id = $1
+            ORDER BY created_at DESC LIMIT 1
             "#,
         )
         .bind(issue_id)
@@ -1585,14 +1464,7 @@ impl OrchestratorService {
         let verification_id: i64 = sqlx::query_scalar(
             r#"
             INSERT INTO verifications (
-                issue_id,
-                fix_run_id,
-                status,
-                summary,
-                evidence,
-                gaps,
-                residual_risks,
-                next_actions
+                issue_id, fix_run_id, status, summary, evidence, gaps, residual_risks, next_actions
             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
             RETURNING id
             "#,
@@ -1608,15 +1480,11 @@ impl OrchestratorService {
         .fetch_one(&mut *tx)
         .await?;
 
-        let issue_status = map_verification_status_to_issue_status(&normalized_status).to_string();
+        let issue_status =
+            map_verification_status_to_issue_status(&normalized_status).to_string();
 
         sqlx::query(
-            r#"
-            UPDATE issues
-            SET status = $2,
-                updated_at = NOW()
-            WHERE id = $1
-            "#,
+            r#"UPDATE issues SET status = $2, updated_at = NOW() WHERE id = $1"#,
         )
         .bind(issue_id)
         .bind(&issue_status)
@@ -1635,6 +1503,149 @@ impl OrchestratorService {
         })
     }
 
+    // -----------------------------------------------------------------------
+    // Repo dir lookups
+    // -----------------------------------------------------------------------
+
+    pub async fn get_project_repo_dir(&self, project_key: &str) -> Result<Option<PathBuf>> {
+        let repo_dir: Option<String> =
+            sqlx::query_scalar(r#"SELECT repo_dir FROM projects WHERE project_key = $1"#)
+                .bind(project_key)
+                .fetch_optional(&self.pool)
+                .await?;
+
+        Ok(repo_dir.map(PathBuf::from))
+    }
+
+    pub async fn get_project_repo_dir_for_issue(
+        &self,
+        issue_id: i64,
+    ) -> Result<Option<PathBuf>> {
+        let repo_dir: Option<String> = sqlx::query_scalar(
+            r#"
+            SELECT p.repo_dir
+            FROM issues i
+            JOIN pull_requests pr ON pr.id = i.pull_request_id
+            JOIN projects p ON p.id = pr.project_id
+            WHERE i.id = $1
+            "#,
+        )
+        .bind(issue_id)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        Ok(repo_dir.map(PathBuf::from))
+    }
+
+    pub async fn get_project_repo_dir_for_pr(
+        &self,
+        pr_id: i64,
+    ) -> Result<Option<PathBuf>> {
+        let repo_dir: Option<String> = sqlx::query_scalar(
+            r#"
+            SELECT p.repo_dir
+            FROM pull_requests pr
+            JOIN projects p ON p.id = pr.project_id
+            WHERE pr.id = $1
+            "#,
+        )
+        .bind(pr_id)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        Ok(repo_dir.map(PathBuf::from))
+    }
+
+    // -----------------------------------------------------------------------
+    // Internal helpers
+    // -----------------------------------------------------------------------
+
+    async fn recover_interrupted_runs(&self) -> Result<()> {
+        sqlx::query(
+            r#"
+            UPDATE workflow_runs
+            SET status = 'failed', stop_reason = 'service_restarted',
+                summary = 'Task interrupted because the orchestrator service restarted before completion.',
+                completed_at = NOW()
+            WHERE status = 'running'
+            "#,
+        )
+        .execute(&self.pool)
+        .await?;
+
+        sqlx::query(
+            r#"
+            UPDATE workflow_rounds
+            SET status = 'failed', stop_reason = 'service_restarted',
+                summary = 'Round interrupted because the orchestrator service restarted before completion.',
+                completed_at = NOW()
+            WHERE status = 'running'
+            "#,
+        )
+        .execute(&self.pool)
+        .await?;
+
+        sqlx::query(
+            r#"
+            UPDATE issues SET status = 'open', claimed_by = NULL, claimed_at = NULL, updated_at = NOW()
+            WHERE status = 'claimed'
+            "#,
+        )
+        .execute(&self.pool)
+        .await?;
+
+        Ok(())
+    }
+
+    async fn issue_workflow_context(&self, issue_id: i64) -> Result<WorkflowContext> {
+        sqlx::query_as::<_, WorkflowContext>(
+            r#"
+            SELECT p.project_key, p.project_name, pr.platform, pr.pr_number, pr.pr_url
+            FROM issues i
+            JOIN pull_requests pr ON pr.id = i.pull_request_id
+            JOIN projects p ON p.id = pr.project_id
+            WHERE i.id = $1
+            "#,
+        )
+        .bind(issue_id)
+        .fetch_optional(&self.pool)
+        .await?
+        .ok_or_else(|| OrchestratorError::NotFound(format!("Issue not found: {}", issue_id)))
+    }
+
+    async fn pr_workflow_context(&self, pr_id: i64) -> Result<WorkflowContext> {
+        sqlx::query_as::<_, WorkflowContext>(
+            r#"
+            SELECT p.project_key, p.project_name, pr.platform, pr.pr_number, pr.pr_url
+            FROM pull_requests pr
+            JOIN projects p ON p.id = pr.project_id
+            WHERE pr.id = $1
+            "#,
+        )
+        .bind(pr_id)
+        .fetch_optional(&self.pool)
+        .await?
+        .ok_or_else(|| OrchestratorError::NotFound(format!("PR not found: {}", pr_id)))
+    }
+
+    async fn open_issue_ids_for_pr(&self, pr_id: i64) -> Result<Vec<i64>> {
+        let rows = sqlx::query_scalar::<_, i64>(
+            r#"
+            SELECT i.id FROM issues i
+            WHERE i.pull_request_id = $1 AND i.status = 'open'
+            ORDER BY
+              CASE i.severity WHEN 'critical' THEN 1 WHEN 'warning' THEN 2 ELSE 3 END,
+              COALESCE(i.confidence, 0) DESC,
+              i.updated_at DESC
+            "#,
+        )
+        .bind(pr_id)
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(rows)
+    }
+
     async fn count_actionable_issues(
         &self,
         project_key: &str,
@@ -1647,9 +1658,7 @@ impl OrchestratorService {
             FROM issues i
             JOIN pull_requests pr ON pr.id = i.pull_request_id
             JOIN projects p ON p.id = pr.project_id
-            WHERE p.project_key = $1
-              AND pr.platform = $2
-              AND pr.pr_number = $3
+            WHERE p.project_key = $1 AND pr.platform = $2 AND pr.pr_number = $3
               AND i.status IN ('open', 'reopened')
               AND i.severity IN ('critical', 'warning')
             "#,
@@ -1663,6 +1672,154 @@ impl OrchestratorService {
         Ok(count)
     }
 
+    async fn finish_workflow_run(
+        &self,
+        workflow_run_id: i64,
+        status: &str,
+        stop_reason: &str,
+        summary: Option<&str>,
+    ) -> Result<()> {
+        sqlx::query(
+            r#"
+            UPDATE workflow_runs
+            SET status = $2, stop_reason = $3, summary = $4, completed_at = NOW()
+            WHERE id = $1
+            "#,
+        )
+        .bind(workflow_run_id)
+        .bind(status)
+        .bind(stop_reason)
+        .bind(summary)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(())
+    }
+
+    async fn update_workflow_progress(
+        &self,
+        workflow_run_id: i64,
+        workflow_summary: Option<&str>,
+        round_number: Option<i32>,
+        round_summary: &str,
+    ) -> Result<()> {
+        sqlx::query(r#"UPDATE workflow_runs SET summary = $2 WHERE id = $1"#)
+            .bind(workflow_run_id)
+            .bind(workflow_summary.unwrap_or(round_summary))
+            .execute(&self.pool)
+            .await?;
+
+        if let Some(rn) = round_number {
+            sqlx::query(
+                r#"UPDATE workflow_rounds SET summary = $3 WHERE workflow_run_id = $1 AND round_number = $2"#,
+            )
+            .bind(workflow_run_id)
+            .bind(rn)
+            .bind(round_summary)
+            .execute(&self.pool)
+            .await?;
+        }
+
+        Ok(())
+    }
+
+    /// Insert or update a workflow round (used for single-round workflows).
+    async fn insert_or_update_round(
+        &self,
+        workflow_run_id: i64,
+        round_number: i32,
+        summary: &str,
+    ) -> Result<()> {
+        sqlx::query(
+            r#"
+            INSERT INTO workflow_rounds (workflow_run_id, round_number, status, summary)
+            VALUES ($1, $2, 'running', $3)
+            ON CONFLICT (workflow_run_id, round_number)
+            DO UPDATE SET status = EXCLUDED.status, summary = EXCLUDED.summary, completed_at = NULL
+            "#,
+        )
+        .bind(workflow_run_id)
+        .bind(round_number)
+        .bind(summary)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(())
+    }
+
+    /// Fail a workflow round.
+    async fn fail_round(
+        &self,
+        workflow_run_id: i64,
+        round_number: i32,
+        error_message: &str,
+    ) -> Result<()> {
+        sqlx::query(
+            r#"
+            UPDATE workflow_rounds
+            SET status = 'failed', stop_reason = 'execution_failed', summary = $3, completed_at = NOW()
+            WHERE workflow_run_id = $1 AND round_number = $2
+            "#,
+        )
+        .bind(workflow_run_id)
+        .bind(round_number)
+        .bind(error_message)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(())
+    }
+
+    /// Complete a review-only round.
+    async fn complete_round_review(
+        &self,
+        workflow_run_id: i64,
+        round_number: i32,
+        review_run_id: i64,
+    ) -> Result<()> {
+        sqlx::query(
+            r#"
+            UPDATE workflow_rounds
+            SET review_run_id = $3, status = 'completed', stop_reason = 'review_completed',
+                summary = $4, completed_at = NOW()
+            WHERE workflow_run_id = $1 AND round_number = $2
+            "#,
+        )
+        .bind(workflow_run_id)
+        .bind(round_number)
+        .bind(review_run_id)
+        .bind(format!(
+            "ReviewAgent completed review_run_id={} and refreshed the issue pool.",
+            review_run_id
+        ))
+        .execute(&self.pool)
+        .await?;
+
+        Ok(())
+    }
+
+    async fn workflow_run_summary(
+        &self,
+        workflow_run_id: i64,
+    ) -> Result<WorkflowRunSummary> {
+        sqlx::query_as::<_, WorkflowRunSummary>(
+            r#"
+            SELECT id, project_key, project_name, platform, pr_number, pr_url,
+                   status, stop_reason, max_rounds, summary, started_at, completed_at
+            FROM workflow_runs WHERE id = $1
+            "#,
+        )
+        .bind(workflow_run_id)
+        .fetch_optional(&self.pool)
+        .await?
+        .ok_or_else(|| {
+            OrchestratorError::NotFound(format!(
+                "Workflow run not found: {}",
+                workflow_run_id
+            ))
+        })
+    }
+
     async fn execute_issue_fix_run(
         &self,
         workflow_run_id: i64,
@@ -1671,19 +1828,11 @@ impl OrchestratorService {
         claimed_by: String,
         dry_run: bool,
     ) -> Result<RunFixResult> {
-        let (_project_key, _project_name, _platform, _pr_number, _pr_url) = self.issue_workflow_context(issue_id).await?;
-
-        sqlx::query(
-            r#"
-            INSERT INTO workflow_rounds (workflow_run_id, round_number, status, summary)
-            VALUES ($1, 1, 'running', $2)
-            ON CONFLICT (workflow_run_id, round_number)
-            DO UPDATE SET status = EXCLUDED.status, summary = EXCLUDED.summary, completed_at = NULL
-            "#,
+        self.insert_or_update_round(
+            workflow_run_id,
+            1,
+            &format!("FixAgent is processing issue {}.", issue_id),
         )
-        .bind(workflow_run_id)
-        .bind(format!("FixAgent is processing issue {}.", issue_id))
-        .execute(&self.pool)
         .await?;
 
         self.update_workflow_progress(
@@ -1706,12 +1855,8 @@ impl OrchestratorService {
         sqlx::query(
             r#"
             UPDATE workflow_rounds
-            SET issue_id = $3,
-                fix_run_id = $4,
-                status = 'completed',
-                stop_reason = 'issue_fix_completed',
-                summary = $5,
-                completed_at = NOW()
+            SET issue_id = $3, fix_run_id = $4, status = 'completed',
+                stop_reason = 'issue_fix_completed', summary = $5, completed_at = NOW()
             WHERE workflow_run_id = $1 AND round_number = $2
             "#,
         )
@@ -1741,9 +1886,9 @@ impl OrchestratorService {
         claimed_by: String,
         dry_run: bool,
     ) -> Result<()> {
-        let (project_key, _project_name, platform, pr_number, _pr_url) = self.pr_workflow_context(pr_id).await?;
-
+        let ctx = self.pr_workflow_context(pr_id).await?;
         let issue_ids = self.open_issue_ids_for_pr(pr_id).await?;
+
         if issue_ids.is_empty() {
             self.finish_workflow_run(
                 workflow_run_id,
@@ -1758,7 +1903,12 @@ impl OrchestratorService {
         let mut completed = 0usize;
         for (index, issue_id) in issue_ids.iter().enumerate() {
             let round_number = (index + 1) as i32;
-            let round_summary = format!("FixAgent is processing issue {} ({}/{}).", issue_id, index + 1, issue_ids.len());
+            let round_summary = format!(
+                "FixAgent is processing issue {} ({}/{}).",
+                issue_id,
+                index + 1,
+                issue_ids.len()
+            );
 
             sqlx::query(
                 r#"
@@ -1792,12 +1942,8 @@ impl OrchestratorService {
             sqlx::query(
                 r#"
                 UPDATE workflow_rounds
-                SET issue_id = $3,
-                    fix_run_id = $4,
-                    status = 'completed',
-                    stop_reason = 'issue_fix_completed',
-                    summary = $5,
-                    completed_at = NOW()
+                SET issue_id = $3, fix_run_id = $4, status = 'completed',
+                    stop_reason = 'issue_fix_completed', summary = $5, completed_at = NOW()
                 WHERE workflow_run_id = $1 AND round_number = $2
                 "#,
             )
@@ -1812,7 +1958,10 @@ impl OrchestratorService {
             completed += 1;
         }
 
-        let summary = format!("Fix All processed {} open issues for PR #{} on {}.", completed, pr_number, platform);
+        let summary = format!(
+            "Fix All processed {} open issues for PR #{} on {}.",
+            completed, ctx.pr_number, ctx.platform
+        );
         self.finish_workflow_run(
             workflow_run_id,
             "completed",
@@ -1820,8 +1969,6 @@ impl OrchestratorService {
             Some(&summary),
         )
         .await?;
-
-        let _ = project_key;
 
         Ok(())
     }
@@ -1835,96 +1982,70 @@ impl OrchestratorService {
     ) -> Result<RunFixResult> {
         let mut tx = self.pool.begin().await?;
 
-        let row = sqlx::query_as::<_, (i64, i64, String, String, i64, i64, String, String, String, Option<String>, Option<String>, Option<i32>)>(
+        let row = sqlx::query_as::<_, ClaimedIssueRow>(
             r#"
             UPDATE issues i
-            SET status = 'claimed',
-                claimed_by = $1,
-                claimed_at = NOW(),
-                updated_at = NOW()
-            WHERE i.id = $2
-              AND i.status IN ('open', 'reopened')
-            RETURNING i.id, i.pull_request_id, i.severity, i.file_path, i.start_line, i.end_line, i.title, i.description, i.suggestion, i.suggestion_code, i.original_code, i.confidence
+            SET status = 'claimed', claimed_by = $1, claimed_at = NOW(), updated_at = NOW()
+            WHERE i.id = $2 AND i.status IN ('open', 'reopened')
+            RETURNING i.id, i.pull_request_id, i.severity, i.file_path, i.start_line, i.end_line,
+                      i.title, i.description, i.suggestion, i.suggestion_code, i.original_code, i.confidence
             "#,
         )
         .bind(&claimed_by)
         .bind(issue_id)
         .fetch_optional(&mut *tx)
-        .await?;
-
-        let (issue_id, pull_request_id, severity, file_path, start_line, end_line, title, description, suggestion, suggestion_code, original_code, confidence) =
-            row.ok_or_else(|| OrchestratorError::Config(format!("No open issue found for issue_id={}", issue_id)))?;
+        .await?
+        .ok_or_else(|| {
+            OrchestratorError::NotFound(format!(
+                "No open issue found for issue_id={}",
+                issue_id
+            ))
+        })?;
 
         tx.commit().await?;
 
-        self.execute_fix_for_issue_data(
-            repo_dir,
-            issue_id,
-            pull_request_id,
-            severity,
-            file_path,
-            start_line,
-            end_line,
-            title,
-            description,
-            suggestion,
-            suggestion_code,
-            original_code,
-            confidence,
-            dry_run,
-        )
-        .await
+        self.execute_fix_for_issue(repo_dir, row, dry_run).await
     }
 
-    #[allow(clippy::too_many_arguments)]
-    async fn execute_fix_for_issue_data(
+    async fn execute_fix_for_issue(
         &self,
         repo_dir: PathBuf,
-        issue_id: i64,
-        pull_request_id: i64,
-        severity: String,
-        file_path: String,
-        start_line: i64,
-        end_line: i64,
-        title: String,
-        description: String,
-        suggestion: String,
-        suggestion_code: Option<String>,
-        original_code: Option<String>,
-        confidence: Option<i32>,
+        issue: ClaimedIssueRow,
         dry_run: bool,
     ) -> Result<RunFixResult> {
         let runner = FixRunner::new(repo_dir.clone())
             .await
-            .map_err(|e| OrchestratorError::Config(e.to_string()))?;
+            .map_err(|e| OrchestratorError::External(e.to_string()))?;
 
         let task = FixTask {
-            issue_id: Some(issue_id),
+            issue_id: Some(issue.id),
             issue_index: 1,
             issue: reviewagent::llm::Issue {
-                severity: parse_severity(&severity),
-                file: file_path,
-                line: start_line as usize,
-                end_line: Some(end_line as usize),
-                title: title.clone(),
-                description,
-                suggestion,
-                suggestion_code,
-                original_code,
-                confidence: confidence.map(|v| v as u8),
+                severity: parse_severity(&issue.severity),
+                file: issue.file_path,
+                line: issue.start_line as usize,
+                end_line: Some(issue.end_line as usize),
+                title: issue.title.clone(),
+                description: issue.description,
+                suggestion: issue.suggestion,
+                suggestion_code: issue.suggestion_code,
+                original_code: issue.original_code,
+                confidence: issue.confidence.map(|v| v as u8),
             },
         };
 
         let fix_result = runner
             .run_task(task, dry_run)
             .await
-            .map_err(|e| OrchestratorError::Config(e.to_string()))?;
+            .map_err(|e| OrchestratorError::External(e.to_string()))?;
 
         let mut commit_sha: Option<String> = None;
         if !dry_run && fix_result.status == FixExecutionStatus::Applied {
-            match git_commit_and_push(&repo_dir, issue_id, &title).await {
+            match git::git_commit_and_push(&repo_dir, issue.id, &issue.title).await {
                 Ok(sha) => commit_sha = sha,
-                Err(e) => tracing::warn!("Git commit/push failed for issue {}: {}", issue_id, e),
+                Err(e) => {
+                    tracing::warn!("Git commit/push failed for issue {}: {}", issue.id, e)
+                }
             }
         }
 
@@ -1940,7 +2061,7 @@ impl OrchestratorService {
             RETURNING id
             "#,
         )
-        .bind(issue_id)
+        .bind(issue.id)
         .bind(&fix_status)
         .bind(&fix_result.summary)
         .bind(&fix_result.rationale)
@@ -1951,14 +2072,9 @@ impl OrchestratorService {
         .await?;
 
         sqlx::query(
-            r#"
-            UPDATE issues
-            SET status = $2,
-                updated_at = NOW()
-            WHERE id = $1
-            "#,
+            r#"UPDATE issues SET status = $2, updated_at = NOW() WHERE id = $1"#,
         )
-        .bind(issue_id)
+        .bind(issue.id)
         .bind(&issue_status)
         .execute(&mut *tx)
         .await?;
@@ -1966,181 +2082,13 @@ impl OrchestratorService {
         tx.commit().await?;
 
         Ok(RunFixResult {
-            issue_id,
-            pull_request_id,
+            issue_id: issue.id,
+            pull_request_id: issue.pull_request_id,
             fix_run_id,
             issue_status,
             fix_status,
             processed_at: Utc::now(),
         })
-    }
-
-    async fn recover_interrupted_runs(&self) -> Result<()> {
-        sqlx::query(
-            r#"
-            UPDATE workflow_runs
-            SET status = 'failed',
-                stop_reason = 'service_restarted',
-                summary = 'Task interrupted because the orchestrator service restarted before completion.',
-                completed_at = NOW()
-            WHERE status = 'running'
-            "#,
-        )
-        .execute(&self.pool)
-        .await?;
-
-        sqlx::query(
-            r#"
-            UPDATE workflow_rounds
-            SET status = 'failed',
-                stop_reason = 'service_restarted',
-                summary = 'Round interrupted because the orchestrator service restarted before completion.',
-                completed_at = NOW()
-            WHERE status = 'running'
-            "#,
-        )
-        .execute(&self.pool)
-        .await?;
-
-        sqlx::query(
-            r#"
-            UPDATE issues
-            SET status = 'open',
-                claimed_by = NULL,
-                claimed_at = NULL,
-                updated_at = NOW()
-            WHERE status = 'claimed'
-            "#,
-        )
-        .execute(&self.pool)
-        .await?;
-
-        Ok(())
-    }
-
-    async fn issue_workflow_context(
-        &self,
-        issue_id: i64,
-    ) -> Result<(String, String, String, i64, String)> {
-        sqlx::query_as::<_, (String, String, String, i64, String)>(
-            r#"
-            SELECT p.project_key, p.project_name, pr.platform, pr.pr_number, pr.pr_url
-            FROM issues i
-            JOIN pull_requests pr ON pr.id = i.pull_request_id
-            JOIN projects p ON p.id = pr.project_id
-            WHERE i.id = $1
-            "#,
-        )
-        .bind(issue_id)
-        .fetch_optional(&self.pool)
-        .await?
-        .ok_or_else(|| OrchestratorError::Config(format!("Issue not found: {}", issue_id)))
-    }
-
-    async fn pr_workflow_context(
-        &self,
-        pr_id: i64,
-    ) -> Result<(String, String, String, i64, String)> {
-        sqlx::query_as::<_, (String, String, String, i64, String)>(
-            r#"
-            SELECT p.project_key, p.project_name, pr.platform, pr.pr_number, pr.pr_url
-            FROM pull_requests pr
-            JOIN projects p ON p.id = pr.project_id
-            WHERE pr.id = $1
-            "#,
-        )
-        .bind(pr_id)
-        .fetch_optional(&self.pool)
-        .await?
-        .ok_or_else(|| OrchestratorError::Config(format!("PR not found: {}", pr_id)))
-    }
-
-    async fn open_issue_ids_for_pr(&self, pr_id: i64) -> Result<Vec<i64>> {
-        let rows = sqlx::query_scalar::<_, i64>(
-            r#"
-            SELECT i.id
-            FROM issues i
-            WHERE i.pull_request_id = $1
-              AND i.status = 'open'
-            ORDER BY
-              CASE i.severity
-                WHEN 'critical' THEN 1
-                WHEN 'warning' THEN 2
-                ELSE 3
-              END,
-              COALESCE(i.confidence, 0) DESC,
-              i.updated_at DESC
-            "#,
-        )
-        .bind(pr_id)
-        .fetch_all(&self.pool)
-        .await?;
-
-        Ok(rows)
-    }
-
-    async fn finish_workflow_run(
-        &self,
-        workflow_run_id: i64,
-        status: &str,
-        stop_reason: &str,
-        summary: Option<&str>,
-    ) -> Result<()> {
-        sqlx::query(
-            r#"
-            UPDATE workflow_runs
-            SET status = $2,
-                stop_reason = $3,
-                summary = $4,
-                completed_at = NOW()
-            WHERE id = $1
-            "#,
-        )
-        .bind(workflow_run_id)
-        .bind(status)
-        .bind(stop_reason)
-        .bind(summary)
-        .execute(&self.pool)
-        .await?;
-
-        Ok(())
-    }
-
-    async fn update_workflow_progress(
-        &self,
-        workflow_run_id: i64,
-        workflow_summary: Option<&str>,
-        round_number: Option<i32>,
-        round_summary: &str,
-    ) -> Result<()> {
-        sqlx::query(
-            r#"
-            UPDATE workflow_runs
-            SET summary = $2
-            WHERE id = $1
-            "#,
-        )
-        .bind(workflow_run_id)
-        .bind(workflow_summary.unwrap_or(round_summary))
-        .execute(&self.pool)
-        .await?;
-
-        if let Some(round_number) = round_number {
-            sqlx::query(
-                r#"
-                UPDATE workflow_rounds
-                SET summary = $3
-                WHERE workflow_run_id = $1 AND round_number = $2
-                "#,
-            )
-            .bind(workflow_run_id)
-            .bind(round_number)
-            .bind(round_summary)
-            .execute(&self.pool)
-            .await?;
-        }
-
-        Ok(())
     }
 
     async fn auto_verify_issue_from_latest_review(
@@ -2170,14 +2118,14 @@ impl OrchestratorService {
             self.verify_fix(
                 issue_id,
                 "verified".to_string(),
-                "The post-fix review no longer reported the same issue fingerprint, so the fix is considered resolved by automated verification.".to_string(),
+                "The post-fix review no longer contains the original issue fingerprint, indicating the fix resolved the problem.".to_string(),
                 Some(format!(
-                    "ReviewAgent did not report the issue in review_run_id={}",
+                    "ReviewAgent review_run_id={} does not contain the issue fingerprint",
                     latest_review_run_id
                 )),
                 None,
-                Some("Automated review cannot guarantee behavior-level correctness beyond the detected issue fingerprint".to_string()),
-                Some("Optionally validate with tests or staging checks for higher confidence".to_string()),
+                None,
+                None,
             )
             .await
         }
@@ -2188,332 +2136,35 @@ impl OrchestratorService {
         issue_id: i64,
         review_run_id: i64,
     ) -> Result<bool> {
-        let found = sqlx::query_scalar::<_, i64>(
-            r#"
-            SELECT COUNT(*)
-            FROM issues
-            WHERE id = $1
-              AND review_run_id = $2
-            "#,
+        let issue = sqlx::query_as::<_, (i64, String)>(
+            r#"SELECT pull_request_id, fingerprint FROM issues WHERE id = $1"#,
         )
         .bind(issue_id)
+        .fetch_optional(&self.pool)
+        .await?
+        .ok_or_else(|| OrchestratorError::NotFound(format!("Issue not found: {}", issue_id)))?;
+
+        let count: i64 = sqlx::query_scalar(
+            r#"
+            SELECT COUNT(*) FROM issues
+            WHERE pull_request_id = $1 AND review_run_id = $2 AND fingerprint = $3
+            "#,
+        )
+        .bind(issue.0)
         .bind(review_run_id)
+        .bind(&issue.1)
         .fetch_one(&self.pool)
         .await?;
 
-        Ok(found > 0)
-    }
-
-    async fn workflow_run_summary(&self, workflow_run_id: i64) -> Result<WorkflowRunSummary> {
-        let row = sqlx::query_as::<_, (i64, String, String, String, i64, String, String, Option<String>, i32, Option<String>, chrono::DateTime<Utc>, Option<chrono::DateTime<Utc>>)>(
-            r#"
-            SELECT id, project_key, project_name, platform, pr_number, pr_url, status, stop_reason, max_rounds, summary, started_at, completed_at
-            FROM workflow_runs
-            WHERE id = $1
-            "#,
-        )
-        .bind(workflow_run_id)
-        .fetch_optional(&self.pool)
-        .await?
-        .ok_or_else(|| {
-            OrchestratorError::Config(format!(
-                "Workflow run not found: {}",
-                workflow_run_id
-            ))
-        })?;
-
-        Ok(WorkflowRunSummary {
-            id: row.0,
-            project_key: row.1,
-            project_name: row.2,
-            platform: row.3,
-            pr_number: row.4,
-            pr_url: row.5,
-            status: row.6,
-            stop_reason: row.7,
-            max_rounds: row.8,
-            summary: row.9,
-            started_at: row.10,
-            completed_at: row.11,
-        })
-    }
-
-    /// Update a PR's status. When transitioning to `ready_to_merge`, squash all
-    /// FixAgent commits in the branch into a single commit and force-push.
-    pub async fn set_pr_status(&self, pr_id: i64, new_status: String) -> Result<PullRequestSummary> {
-        let new_status = new_status.trim().to_lowercase();
-        if new_status != "open" && new_status != "ready_to_merge" {
-            return Err(OrchestratorError::Config(format!(
-                "Unsupported PR status: {}. Must be 'open' or 'ready_to_merge'.",
-                new_status
-            )));
-        }
-
-        // Fetch the current PR to ensure it exists
-        let row = sqlx::query_as::<_, (i64, i64, String, i64, String, Option<String>, String, chrono::DateTime<Utc>, chrono::DateTime<Utc>)>(
-            r#"
-            SELECT id, project_id, platform, pr_number, pr_url, latest_commit_sha, status, created_at, updated_at
-            FROM pull_requests
-            WHERE id = $1
-            "#,
-        )
-        .bind(pr_id)
-        .fetch_optional(&self.pool)
-        .await?
-        .ok_or_else(|| OrchestratorError::Config(format!("PR not found: {}", pr_id)))?;
-
-        let current_status = &row.6;
-
-        // If transitioning to ready_to_merge, squash fix commits
-        if new_status == "ready_to_merge" && current_status != "ready_to_merge" {
-            let repo_dir = self.get_project_repo_dir_for_pr(pr_id).await?;
-            if let Some(repo_dir) = repo_dir {
-                squash_fix_commits(&repo_dir).await.map_err(|e| {
-                    OrchestratorError::Config(format!("Failed to squash fix commits: {}", e))
-                })?;
-            }
-        }
-
-        // Update status in DB
-        let updated = sqlx::query_as::<_, (i64, i64, String, i64, String, Option<String>, String, chrono::DateTime<Utc>, chrono::DateTime<Utc>)>(
-            r#"
-            UPDATE pull_requests
-            SET status = $2, updated_at = NOW()
-            WHERE id = $1
-            RETURNING id, project_id, platform, pr_number, pr_url, latest_commit_sha, status, created_at, updated_at
-            "#,
-        )
-        .bind(pr_id)
-        .bind(&new_status)
-        .fetch_one(&self.pool)
-        .await?;
-
-        Ok(PullRequestSummary {
-            id: updated.0,
-            project_id: updated.1,
-            platform: updated.2,
-            pr_number: updated.3,
-            pr_url: updated.4,
-            latest_commit_sha: updated.5,
-            status: updated.6,
-            created_at: updated.7,
-            updated_at: updated.8,
-        })
+        Ok(count > 0)
     }
 }
 
-async fn git_commit_and_push(
-    repo_dir: &PathBuf,
-    issue_id: i64,
-    title: &str,
-) -> std::result::Result<Option<String>, String> {
-    let output = tokio::process::Command::new("git")
-        .args(["config", "user.email", "fixagent@monkeycode.ai"])
-        .current_dir(repo_dir)
-        .output()
-        .await
-        .map_err(|e| format!("git config user.email failed: {}", e))?;
-    if !output.status.success() {
-        return Err(format!("git config user.email failed: {}", String::from_utf8_lossy(&output.stderr)));
-    }
+// ---------------------------------------------------------------------------
+// Free functions
+// ---------------------------------------------------------------------------
 
-    let output = tokio::process::Command::new("git")
-        .args(["config", "user.name", "FixAgent"])
-        .current_dir(repo_dir)
-        .output()
-        .await
-        .map_err(|e| format!("git config user.name failed: {}", e))?;
-    if !output.status.success() {
-        return Err(format!("git config user.name failed: {}", String::from_utf8_lossy(&output.stderr)));
-    }
-
-    let output = tokio::process::Command::new("git")
-        .args(["add", "-A"])
-        .current_dir(repo_dir)
-        .output()
-        .await
-        .map_err(|e| format!("git add -A failed: {}", e))?;
-    if !output.status.success() {
-        return Err(format!("git add failed: {}", String::from_utf8_lossy(&output.stderr)));
-    }
-
-    let commit_msg = format!("fix: {} (Issue #{})\n\nAutomated fix by FixAgent", title, issue_id);
-    let output = tokio::process::Command::new("git")
-        .args(["commit", "-m", &commit_msg])
-        .current_dir(repo_dir)
-        .output()
-        .await
-        .map_err(|e| format!("git commit failed: {}", e))?;
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        if stderr.contains("nothing to commit") {
-            tracing::info!("No changes to commit for issue {}", issue_id);
-            return Ok(None);
-        }
-        return Err(format!("git commit failed: {}", stderr));
-    }
-
-    tracing::info!("Committed fix for issue {}: {}", issue_id, title);
-
-    // Get the commit SHA
-    let sha_output = tokio::process::Command::new("git")
-        .args(["rev-parse", "HEAD"])
-        .current_dir(repo_dir)
-        .output()
-        .await
-        .map_err(|e| format!("git rev-parse failed: {}", e))?;
-    let commit_sha = if sha_output.status.success() {
-        Some(String::from_utf8_lossy(&sha_output.stdout).trim().to_string())
-    } else {
-        None
-    };
-
-    let output = tokio::process::Command::new("git")
-        .args(["push"])
-        .current_dir(repo_dir)
-        .output()
-        .await
-        .map_err(|e| format!("git push failed: {}", e))?;
-    if !output.status.success() {
-        return Err(format!("git push failed: {}", String::from_utf8_lossy(&output.stderr)));
-    }
-
-    tracing::info!("Pushed fix for issue {} to remote", issue_id);
-    Ok(commit_sha)
-}
-
-/// Squash all FixAgent commits on the current branch into a single commit.
-///
-/// Strategy:
-/// 1. Find the merge-base between current HEAD and the upstream default branch
-///    (tries origin/main, then origin/master).
-/// 2. Soft-reset to the merge-base (keeps all changes staged).
-/// 3. Create a single squashed commit.
-/// 4. Force-push to the remote tracking branch.
-async fn squash_fix_commits(repo_dir: &PathBuf) -> std::result::Result<(), String> {
-    // Configure git user (needed for commit)
-    let output = tokio::process::Command::new("git")
-        .args(["config", "user.email", "fixagent@monkeycode.ai"])
-        .current_dir(repo_dir)
-        .output()
-        .await
-        .map_err(|e| format!("git config user.email failed: {}", e))?;
-    if !output.status.success() {
-        return Err(format!("git config user.email failed: {}", String::from_utf8_lossy(&output.stderr)));
-    }
-    let output = tokio::process::Command::new("git")
-        .args(["config", "user.name", "FixAgent"])
-        .current_dir(repo_dir)
-        .output()
-        .await
-        .map_err(|e| format!("git config user.name failed: {}", e))?;
-    if !output.status.success() {
-        return Err(format!("git config user.name failed: {}", String::from_utf8_lossy(&output.stderr)));
-    }
-
-    // Determine the upstream base ref (try origin/main first, then origin/master)
-    let base_ref = {
-        let check_main = tokio::process::Command::new("git")
-            .args(["rev-parse", "--verify", "origin/main"])
-            .current_dir(repo_dir)
-            .output()
-            .await
-            .map_err(|e| format!("git rev-parse origin/main failed: {}", e))?;
-        if check_main.status.success() {
-            "origin/main".to_string()
-        } else {
-            let check_master = tokio::process::Command::new("git")
-                .args(["rev-parse", "--verify", "origin/master"])
-                .current_dir(repo_dir)
-                .output()
-                .await
-                .map_err(|e| format!("git rev-parse origin/master failed: {}", e))?;
-            if check_master.status.success() {
-                "origin/master".to_string()
-            } else {
-                return Err("Could not find origin/main or origin/master as base branch".to_string());
-            }
-        }
-    };
-
-    // Find merge-base
-    let merge_base_output = tokio::process::Command::new("git")
-        .args(["merge-base", "HEAD", &base_ref])
-        .current_dir(repo_dir)
-        .output()
-        .await
-        .map_err(|e| format!("git merge-base failed: {}", e))?;
-    if !merge_base_output.status.success() {
-        return Err(format!("git merge-base failed: {}", String::from_utf8_lossy(&merge_base_output.stderr)));
-    }
-    let merge_base = String::from_utf8_lossy(&merge_base_output.stdout).trim().to_string();
-
-    // Check if there are any commits to squash (compare HEAD to merge-base)
-    let rev_list_output = tokio::process::Command::new("git")
-        .args(["rev-list", "--count", &format!("{}..HEAD", merge_base)])
-        .current_dir(repo_dir)
-        .output()
-        .await
-        .map_err(|e| format!("git rev-list failed: {}", e))?;
-    let commit_count: usize = String::from_utf8_lossy(&rev_list_output.stdout)
-        .trim()
-        .parse()
-        .unwrap_or(0);
-
-    if commit_count <= 1 {
-        tracing::info!("Only {} commit(s) ahead of base — nothing to squash", commit_count);
-        return Ok(());
-    }
-
-    tracing::info!("Squashing {} commits (merge-base: {}, base_ref: {})", commit_count, &merge_base, &base_ref);
-
-    // Soft-reset to the merge-base — keeps all changes staged
-    let output = tokio::process::Command::new("git")
-        .args(["reset", "--soft", &merge_base])
-        .current_dir(repo_dir)
-        .output()
-        .await
-        .map_err(|e| format!("git reset --soft failed: {}", e))?;
-    if !output.status.success() {
-        return Err(format!("git reset --soft failed: {}", String::from_utf8_lossy(&output.stderr)));
-    }
-
-    // Create squashed commit
-    let squash_msg = format!("fix: squashed {} FixAgent commits\n\nAutomated squash by FixAgent before merge.", commit_count);
-    let output = tokio::process::Command::new("git")
-        .args(["commit", "-m", &squash_msg])
-        .current_dir(repo_dir)
-        .output()
-        .await
-        .map_err(|e| format!("git commit (squash) failed: {}", e))?;
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        if stderr.contains("nothing to commit") {
-            tracing::info!("Nothing to commit after squash reset — branch may already be clean");
-            return Ok(());
-        }
-        return Err(format!("git commit (squash) failed: {}", stderr));
-    }
-
-    // Force-push to remote
-    let output = tokio::process::Command::new("git")
-        .args(["push", "--force-with-lease"])
-        .current_dir(repo_dir)
-        .output()
-        .await
-        .map_err(|e| format!("git push --force-with-lease failed: {}", e))?;
-    if !output.status.success() {
-        return Err(format!("git push --force-with-lease failed: {}", String::from_utf8_lossy(&output.stderr)));
-    }
-
-    tracing::info!("Successfully squashed {} commits and force-pushed", commit_count);
-    Ok(())
-}
-
-fn build_issue_fingerprint(
-    pull_request_id: i64,
-    issue: &reviewagent::llm::Issue,
-) -> String {
+fn build_issue_fingerprint(pull_request_id: i64, issue: &reviewagent::llm::Issue) -> String {
     let end_line = issue.end_line.unwrap_or(issue.line);
     format!(
         "{}:{}:{}:{}:{}",
@@ -2591,7 +2242,7 @@ fn normalize_verification_status(value: &str) -> Result<String> {
     match normalized.as_str() {
         "verified" | "partially_verified" | "not_verifiable_in_current_env"
         | "external_validation_required" | "failed" | "needs_human" => Ok(normalized),
-        _ => Err(OrchestratorError::Config(format!(
+        _ => Err(OrchestratorError::Validation(format!(
             "Unsupported verification status: {}",
             value
         ))),
@@ -2620,76 +2271,21 @@ fn split_lines(value: Option<String>) -> Vec<String> {
         .collect()
 }
 
-fn load_reviewagent_config(repo_dir: &std::path::Path) -> Result<reviewagent::config::Config> {
+fn load_reviewagent_config(
+    repo_dir: &std::path::Path,
+) -> Result<reviewagent::config::Config> {
     for candidate in [".reviewagent.toml", "reviewagent.toml"] {
         let path = repo_dir.join(candidate);
         if path.exists() {
-            let mut config = reviewagent::config::Config::load(&path)
-                .map_err(|e| OrchestratorError::Config(e.to_string()))?;
-            apply_workspace_env_overrides(repo_dir, &mut config)?;
+            let config = reviewagent::config::Config::load(&path)
+                .map_err(|e| OrchestratorError::External(e.to_string()))?;
             return Ok(config);
         }
     }
-    let mut config = reviewagent::config::Config::default();
-    apply_workspace_env_overrides(repo_dir, &mut config)?;
-    Ok(config)
+    Ok(reviewagent::config::Config::default())
 }
 
-fn apply_workspace_env_overrides(
-    repo_dir: &std::path::Path,
-    config: &mut reviewagent::config::Config,
-) -> Result<()> {
-    let env_path = repo_dir.join("env");
-    if env_path.exists() {
-        let content = std::fs::read_to_string(&env_path)?;
-        for raw_line in content.lines() {
-            let line = raw_line.trim();
-            if line.is_empty() || line.starts_with('#') {
-                continue;
-            }
-
-            let Some((key, value)) = line.split_once('=') else {
-                continue;
-            };
-
-            let value = value.trim().trim_matches('"').trim_matches('\'').to_string();
-            match key.trim().to_ascii_lowercase().as_str() {
-                "baseurl" => {
-                    config.llm.base_url = Some(value.clone());
-                    config.llm_lite.base_url = Some(value);
-                }
-                "apikey" => {
-                    config.llm.api_key = Some(value.clone());
-                    config.llm_lite.api_key = Some(value);
-                }
-                "model" => {
-                    config.llm.model = value.clone();
-                    config.llm_lite.model = value;
-                }
-                _ => {}
-            }
-        }
-    }
-
-    if let Ok(value) = std::env::var("OPENAI_BASE_URL") {
-        config.llm.base_url = Some(value.clone());
-        config.llm_lite.base_url = Some(value);
-    }
-
-    if let Ok(value) = std::env::var("OPENAI_API_KEY") {
-        config.llm.api_key = Some(value.clone());
-        config.llm_lite.api_key = Some(value);
-    }
-
-    if let Ok(value) = std::env::var("MODEL") {
-        config.llm.model = value.clone();
-        config.llm_lite.model = value;
-    }
-
-    Ok(())
-}
-
-fn detect_platform_name_and_pr_number(url: &str) -> Option<(String, i64)> {
+pub fn detect_platform_name_and_pr_number(url: &str) -> Option<(String, i64)> {
     let github = regex::Regex::new(r"^https://github\.com/[^/]+/[^/]+/pull/(\d+)").ok()?;
     if let Some(caps) = github.captures(url) {
         return caps

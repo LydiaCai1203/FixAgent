@@ -40,7 +40,7 @@ pub struct RunWorkflowResult {
     pub completed_at: DateTime<Utc>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct ProjectSummary {
     pub id: i64,
     pub project_key: String,
@@ -51,7 +51,7 @@ pub struct ProjectSummary {
     pub updated_at: DateTime<Utc>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct PullRequestSummary {
     pub id: i64,
     pub project_id: i64,
@@ -137,7 +137,7 @@ pub struct RunUntilStableResult {
     pub completed_at: DateTime<Utc>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct WorkflowRunSummary {
     pub id: i64,
     pub project_key: String,
@@ -153,7 +153,7 @@ pub struct WorkflowRunSummary {
     pub completed_at: Option<DateTime<Utc>>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct WorkflowRoundSummary {
     pub id: i64,
     pub workflow_run_id: i64,
@@ -173,4 +173,31 @@ pub struct WorkflowRoundSummary {
 pub struct WorkflowRunDetail {
     pub workflow: WorkflowRunSummary,
     pub rounds: Vec<WorkflowRoundSummary>,
+}
+
+/// Intermediate row used when claiming an issue for fix.
+#[derive(Debug, Clone, FromRow)]
+pub struct ClaimedIssueRow {
+    pub id: i64,
+    pub pull_request_id: i64,
+    pub severity: String,
+    pub file_path: String,
+    pub start_line: i64,
+    pub end_line: i64,
+    pub title: String,
+    pub description: String,
+    pub suggestion: String,
+    pub suggestion_code: Option<String>,
+    pub original_code: Option<String>,
+    pub confidence: Option<i32>,
+}
+
+/// Context tuple for issue/PR workflow lookups.
+#[derive(Debug, Clone, FromRow)]
+pub struct WorkflowContext {
+    pub project_key: String,
+    pub project_name: String,
+    pub platform: String,
+    pub pr_number: i64,
+    pub pr_url: String,
 }
