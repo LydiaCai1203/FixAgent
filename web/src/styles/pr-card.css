@@ -3,6 +3,11 @@
   position: relative;
   overflow: visible;
   min-height: 182px;
+  z-index: 1;
+}
+
+.brew-pr-card:hover {
+  z-index: 30;
 }
 
 .brew-pr-card-grid {
