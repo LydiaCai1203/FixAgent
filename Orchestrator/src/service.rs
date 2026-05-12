@@ -308,6 +308,92 @@ impl OrchestratorService {
         Ok(updated)
     }
 
+    pub async fn delete_pr(&self, pr_id: i64) -> Result<()> {
+        let pr = sqlx::query_as::<_, PullRequestSummary>(
+            r#"
+            SELECT id, project_id, platform, pr_number, pr_url, latest_commit_sha, status, created_at, updated_at
+            FROM pull_requests WHERE id = $1
+            "#,
+        )
+        .bind(pr_id)
+        .fetch_optional(&self.pool)
+        .await?
+        .ok_or_else(|| OrchestratorError::NotFound(format!("PR not found: {}", pr_id)))?;
+
+        let mut tx = self.pool.begin().await?;
+
+        // Delete workflow_rounds for related workflow_runs
+        sqlx::query(
+            r#"
+            DELETE FROM workflow_rounds
+            WHERE workflow_run_id IN (
+                SELECT id FROM workflow_runs
+                WHERE platform = $1 AND pr_number = $2
+            )
+            "#,
+        )
+        .bind(&pr.platform)
+        .bind(pr.pr_number)
+        .execute(&mut *tx)
+        .await?;
+
+        // Delete workflow_runs
+        sqlx::query(
+            r#"DELETE FROM workflow_runs WHERE platform = $1 AND pr_number = $2"#,
+        )
+        .bind(&pr.platform)
+        .bind(pr.pr_number)
+        .execute(&mut *tx)
+        .await?;
+
+        // Delete verifications for issues under this PR
+        sqlx::query(
+            r#"
+            DELETE FROM verifications
+            WHERE issue_id IN (
+                SELECT id FROM issues WHERE pull_request_id = $1
+            )
+            "#,
+        )
+        .bind(pr_id)
+        .execute(&mut *tx)
+        .await?;
+
+        // Delete fix_runs for issues under this PR
+        sqlx::query(
+            r#"
+            DELETE FROM fix_runs
+            WHERE issue_id IN (
+                SELECT id FROM issues WHERE pull_request_id = $1
+            )
+            "#,
+        )
+        .bind(pr_id)
+        .execute(&mut *tx)
+        .await?;
+
+        // Delete issues
+        sqlx::query(r#"DELETE FROM issues WHERE pull_request_id = $1"#)
+            .bind(pr_id)
+            .execute(&mut *tx)
+            .await?;
+
+        // Delete review_runs
+        sqlx::query(r#"DELETE FROM review_runs WHERE pull_request_id = $1"#)
+            .bind(pr_id)
+            .execute(&mut *tx)
+            .await?;
+
+        // Delete the PR itself
+        sqlx::query(r#"DELETE FROM pull_requests WHERE id = $1"#)
+            .bind(pr_id)
+            .execute(&mut *tx)
+            .await?;
+
+        tx.commit().await?;
+        Ok(())
+    }
+
     // -----------------------------------------------------------------------
     // Issues
     // -----------------------------------------------------------------------
