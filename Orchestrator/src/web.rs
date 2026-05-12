@@ -97,6 +97,7 @@ pub async fn serve_http(service: OrchestratorService, host: String, port: u16) -
         .route("/health", get(health))
         .route("/projects", get(list_projects).post(create_project).delete(delete_project))
         .route("/prs", get(list_prs).post(create_pr))
+        .route("/prs/{pr_id}", axum::routing::delete(delete_pr))
         .route("/prs/{pr_id}/status", patch(update_pr_status))
         .route("/reviews", post(start_review))
         .route("/issues", get(list_issues))
@@ -157,6 +158,14 @@ async fn create_pr(
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let result = service.create_pr(request.project_key, request.pr_url).await?;
     Ok(Json(serde_json::json!(result)))
+}
+
+async fn delete_pr(
+    State(service): State<OrchestratorService>,
+    Path(pr_id): Path<i64>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    service.delete_pr(pr_id).await?;
+    Ok(Json(serde_json::json!({ "deleted": true })))
 }
 
 async fn update_pr_status(

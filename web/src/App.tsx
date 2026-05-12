@@ -478,6 +478,28 @@ export default function App() {
     }
   }
 
+  async function handleDeletePr(pr: PullRequestSummary) {
+    setError(null);
+    try {
+      const response = await fetch(`${API_BASE_URL}/prs/${pr.id}`, {
+        method: 'DELETE',
+      });
+      if (!response.ok) {
+        throw new Error(await readApiError(response));
+      }
+      if (selectedPrId === pr.id) {
+        setSelectedPrId(null);
+      }
+      if (selectedProjectKey) {
+        await loadPrs(selectedProjectKey);
+        await loadProjectIssues(selectedProjectKey, null);
+        await loadWorkflows(selectedProjectKey);
+      }
+    } catch (err) {
+      setError(toErrorMessage(err));
+    }
+  }
+
   async function handleUpdateIssueStatus(issueId: number, newStatus: string) {
     setError(null);
     try {
@@ -764,20 +786,37 @@ export default function App() {
                       <span className={`brew-pr-status-badge brew-pr-status-${pr.status === 'ready_to_merge' ? 'ready' : 'open'}`}>
                         {pr.status === 'ready_to_merge' ? 'Ready to Merge' : 'Open'}
                       </span>
-                      <button
-                        className={`brew-pr-status-toggle ${pr.status === 'ready_to_merge' ? 'brew-pr-status-toggle-reopen' : ''}`}
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          void handleTogglePrStatus(pr);
-                        }}
-                        disabled={pendingPrStatusIds.includes(pr.id)}
-                      >
-                        {pendingPrStatusIds.includes(pr.id)
-                          ? 'Squashing...'
-                          : pr.status === 'ready_to_merge'
-                            ? 'Re-open'
-                            : 'Squash & Ready'}
-                      </button>
+                      <div className="brew-pr-card-footer-actions">
+                        <button
+                          className={`brew-pr-status-toggle ${pr.status === 'ready_to_merge' ? 'brew-pr-status-toggle-reopen' : ''}`}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            void handleTogglePrStatus(pr);
+                          }}
+                          disabled={pendingPrStatusIds.includes(pr.id)}
+                        >
+                          {pendingPrStatusIds.includes(pr.id)
+                            ? 'Squashing...'
+                            : pr.status === 'ready_to_merge'
+                              ? 'Re-open'
+                              : 'Squash & Ready'}
+                        </button>
+                        <button
+                          className="brew-card-delete-btn"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            if (window.confirm(`Delete PR #${pr.pr_number}? This will also remove all associated issues, fixes, and workflows.`)) {
+                              void handleDeletePr(pr);
+                            }
+                          }}
+                          title="Delete PR"
+                        >
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                            <polyline points="3 6 5 6 21 6"></polyline>
+                            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                          </svg>
+                        </button>
+                      </div>
                     </div>
                    </div>
                 );
