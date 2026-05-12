@@ -47,8 +47,6 @@ services:
       - orchestrator
     ports:
       - "5173:5173"
-    environment:
-      - VITE_API_BASE_URL=http://localhost:3000/api
 
 volumes:
   postgres-data:

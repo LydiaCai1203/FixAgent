@@ -1,19 +1,18 @@
-FROM node:22-bookworm
+FROM node:22-alpine AS builder
 
 WORKDIR /app
 
-# Copy package files first for better layer caching
 COPY web/package.json web/package-lock.json* ./
-
 RUN npm install
 
-# Copy the rest of the application
 COPY web/ .
-
-# Build the application for production
 RUN npm run build
+
+FROM nginx:alpine
+
+COPY --from=builder /app/dist /usr/share/nginx/html
+COPY web/nginx.conf /etc/nginx/conf.d/default.conf
 
 EXPOSE 5173
 
-# Start development server with host binding
-CMD ["npm", "run", "dev", "--", "--host", "0.0.0.0", "--port", "5173"]
+CMD ["nginx", "-g", "daemon off;"]
