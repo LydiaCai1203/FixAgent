@@ -1,6 +1,7 @@
 use anyhow::Result;
 use clap::Parser;
 use orchestrator::cli::{Cli, Commands};
+use orchestrator::config::OrchestratorConfig;
 use orchestrator::service::OrchestratorService;
 use orchestrator::web::serve_http;
 use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
@@ -14,7 +15,8 @@ async fn main() -> Result<()> {
         .with(tracing_subscriber::fmt::layer())
         .init();
 
-    let service = OrchestratorService::new_from_env().await?;
+    let config = OrchestratorConfig::load()?;
+    let service = OrchestratorService::new(config.clone()).await?;
 
     match cli.command {
         Commands::RunReview {
@@ -67,6 +69,8 @@ async fn main() -> Result<()> {
             println!("{}", serde_json::to_string_pretty(&result)?);
         }
         Commands::ServeHttp { host, port } => {
+            let host = host.unwrap_or(config.server.host);
+            let port = port.unwrap_or(config.server.port);
             serve_http(service, host, port).await?;
         }
         Commands::IngestReview {

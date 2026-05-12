@@ -16,10 +16,11 @@ FROM debian:12.12-slim
 
 RUN apt-get update && apt-get install -y \
     ca-certificates \
+    git \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /build/Orchestrator/target/release/orchestrator /usr/local/bin/orchestrator
 
 ENV RUST_LOG=info
 
-CMD ["/usr/local/bin/orchestrator"]
+CMD ["/usr/local/bin/orchestrator", "serve-http"]

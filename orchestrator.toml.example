@@ -1,0 +1,25 @@
+# FixAgent Orchestrator Configuration
+#
+# The orchestrator searches for this file at:
+#   1. ./orchestrator.toml       (working directory)
+#   2. /etc/fixagent/orchestrator.toml
+#
+# All values below can be overridden by environment variables
+# (useful in container deployments).
+
+[database]
+# Override with DATABASE_URL env var
+url = "postgres://fixagent:fixagent@localhost:5432/fixagent"
+
+[server]
+# Override with SERVER_HOST / SERVER_PORT env vars
+host = "0.0.0.0"
+port = 3000
+
+[llm]
+# Override with LLM_PROVIDER / LLM_MODEL / LLM_BASE_URL / LLM_API_KEY env vars
+# Also supports OPENAI_BASE_URL / OPENAI_API_KEY for backward compatibility
+provider = "openai"
+model = "gpt-4o"
+# base_url = "https://api.openai.com/v1"
+# api_key = "sk-..."

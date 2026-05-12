@@ -33,7 +33,9 @@ services:
       RUST_LOG: info
     ports:
       - "3000:3000"
-    command: ["/usr/local/bin/orchestrator", "serve-http", "--host", "0.0.0.0", "--port", "3000"]
+    volumes:
+      - ./orchestrator.toml:/etc/fixagent/orchestrator.toml:ro
+    command: ["/usr/local/bin/orchestrator", "serve-http"]
 
   web:
     build:

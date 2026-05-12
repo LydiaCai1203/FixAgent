@@ -176,7 +176,7 @@ async fn start_review(
         .get_project_repo_dir(&request.project_key)
         .await?
         .or_else(|| request.repo_dir.map(PathBuf::from))
-        .ok_or_else(|| ApiError(OrchestratorError::Config("Project has no repo_dir configured. Please set repo_url when creating the project.".to_string())))?;
+        .ok_or_else(|| ApiError(OrchestratorError::Validation("Project has no repo_dir configured. Please set repo_url when creating the project.".to_string())))?;
     let project_key = request.project_key;
     let project_name = request.project_name;
     let pr_url = request.pr_url;
@@ -239,7 +239,7 @@ async fn start_issue_fix(
         .await?;
     let repo_dir = repo_dir_from_project
         .or_else(|| request.repo_dir.map(PathBuf::from))
-        .ok_or_else(|| ApiError(OrchestratorError::Config("Project has no repo_dir configured. Please set repo_url when creating the project.".to_string())))?;
+        .ok_or_else(|| ApiError(OrchestratorError::Validation("Project has no repo_dir configured. Please set repo_url when creating the project.".to_string())))?;
 
     let claimed_by = request.claimed_by.unwrap_or_else(|| "orchestrator-api".to_string());
     let dry_run = request.dry_run.unwrap_or(false);
@@ -261,7 +261,7 @@ async fn start_pr_fix_all(
         .await?;
     let repo_dir = repo_dir_from_project
         .or_else(|| request.repo_dir.map(PathBuf::from))
-        .ok_or_else(|| ApiError(OrchestratorError::Config("Project has no repo_dir configured. Please set repo_url when creating the project.".to_string())))?;
+        .ok_or_else(|| ApiError(OrchestratorError::Validation("Project has no repo_dir configured. Please set repo_url when creating the project.".to_string())))?;
     let claimed_by = request.claimed_by.unwrap_or_else(|| "orchestrator-api".to_string());
     let dry_run = request.dry_run.unwrap_or(false);
 
@@ -314,7 +314,7 @@ async fn start_workflow(
         .get_project_repo_dir(&request.project_key)
         .await?
         .or_else(|| request.repo_dir.map(PathBuf::from))
-        .ok_or_else(|| ApiError(OrchestratorError::Config("Project has no repo_dir configured. Please set repo_url when creating the project.".to_string())))?;
+        .ok_or_else(|| ApiError(OrchestratorError::Validation("Project has no repo_dir configured. Please set repo_url when creating the project.".to_string())))?;
     let project_key = request.project_key;
     let project_name = request.project_name;
     let pr_url = request.pr_url;
@@ -384,11 +384,15 @@ impl From<OrchestratorError> for ApiError {
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
-        let status = match self.0 {
+        let status = match &self.0 {
             OrchestratorError::Config(_) => StatusCode::BAD_REQUEST,
+            OrchestratorError::Validation(_) => StatusCode::BAD_REQUEST,
+            OrchestratorError::NotFound(_) => StatusCode::NOT_FOUND,
+            OrchestratorError::Json(_) => StatusCode::BAD_REQUEST,
             OrchestratorError::Database(_) => StatusCode::INTERNAL_SERVER_ERROR,
             OrchestratorError::Io(_) => StatusCode::INTERNAL_SERVER_ERROR,
-            OrchestratorError::Json(_) => StatusCode::BAD_REQUEST,
+            OrchestratorError::Git(_) => StatusCode::INTERNAL_SERVER_ERROR,
+            OrchestratorError::External(_) => StatusCode::BAD_GATEWAY,
         };
 
         let body = Json(ApiErrorBody {

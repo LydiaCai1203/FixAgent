@@ -1,0 +1,352 @@
+.brew-bug-card {
+  padding: 18px;
+  border-radius: 18px;
+  background: linear-gradient(180deg, rgba(17, 60, 51, 0.96), rgba(13, 45, 38, 0.98));
+  cursor: pointer;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.brew-bug-card-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.brew-bug-card-topbar-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.brew-severity-badge {
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 8px;
+  border-radius: 6px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.brew-severity-critical {
+  background: rgba(255, 90, 90, 0.12);
+  color: #ff7a7a;
+  border: 1px solid rgba(255, 90, 90, 0.2);
+}
+
+.brew-severity-warning {
+  background: rgba(216, 232, 111, 0.1);
+  color: var(--warning);
+  border: 1px solid rgba(216, 232, 111, 0.18);
+}
+
+.brew-severity-info {
+  background: rgba(100, 180, 255, 0.1);
+  color: #7ac4ff;
+  border: 1px solid rgba(100, 180, 255, 0.18);
+}
+
+.brew-bug-card-title {
+  font-size: 14px;
+  line-height: 1.4;
+  color: var(--text-primary);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.brew-bug-card-location {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-muted);
+  font-size: 11px;
+  min-width: 0;
+}
+
+.brew-bug-card-location svg {
+  flex-shrink: 0;
+  opacity: 0.5;
+}
+
+.brew-bug-card-filepath {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: monospace;
+  font-size: 11px;
+}
+
+.brew-bug-card-line {
+  flex-shrink: 0;
+  color: var(--text-subtle);
+  font-family: monospace;
+  font-size: 11px;
+}
+
+.brew-bug-card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: auto;
+  padding-top: 10px;
+  border-top: 1px solid rgba(201, 223, 114, 0.06);
+}
+
+.brew-bug-card-meta-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.brew-bug-card-confidence {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 32px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 6px;
+  background: rgba(201, 223, 114, 0.08);
+  border: 1px solid rgba(201, 223, 114, 0.12);
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.brew-bug-card-time {
+  color: var(--text-subtle);
+}
+
+.brew-issue-menu-wrap {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.brew-status-dropdown {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(201, 223, 114, 0.12);
+  background: rgba(12, 44, 37, 0.94);
+  color: var(--text-primary);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  cursor: pointer;
+  font-weight: 600;
+  font-family: inherit;
+  line-height: 1;
+  transition: border-color 0.15s ease;
+}
+
+.brew-status-dropdown:hover {
+  border-color: rgba(201, 223, 114, 0.3);
+}
+
+.brew-status-dropdown svg {
+  flex-shrink: 0;
+  opacity: 0.6;
+}
+
+.brew-issue-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  min-width: 120px;
+  padding: 4px;
+  border-radius: 10px;
+  border: 1px solid rgba(201, 223, 114, 0.1);
+  background: rgba(12, 44, 37, 0.98);
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.32);
+  display: grid;
+  gap: 1px;
+  z-index: 20;
+}
+
+.brew-issue-menu-item {
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  text-align: left;
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 11px;
+  cursor: pointer;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-weight: 500;
+}
+
+.brew-issue-menu-item:hover {
+  background: rgba(201, 223, 114, 0.08);
+  color: var(--text-primary);
+}
+
+.brew-bug-pool-panel {
+  min-height: 560px;
+}
+
+.brew-bug-card strong {
+  font-size: 14px;
+}
+
+.brew-bug-card .brew-card-meta {
+  display: none;
+}
+
+.brew-bug-card .brew-chip {
+  display: none;
+}
+
+.brew-bug-card .brew-chip-row {
+  display: none;
+}
+
+.brew-bug-card .brew-card-footer {
+  display: none;
+}
+
+.brew-bug-card .brew-card-header {
+  display: none;
+}
+
+.brew-card-delete-btn {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid rgba(255, 122, 122, 0.2);
+  border-radius: 8px;
+  background: rgba(255, 122, 122, 0.06);
+  color: #ff7a7a;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: all 0.15s ease;
+}
+
+.brew-card-delete-btn:hover {
+  background: rgba(255, 122, 122, 0.15);
+  border-color: rgba(255, 122, 122, 0.4);
+}
+
+.brew-card-delete-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.brew-fix-action-wrap {
+  position: relative;
+  display: inline-flex;
+}
+
+.brew-fix-popover {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  width: 320px;
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(201, 223, 114, 0.12);
+  background: rgba(12, 44, 37, 0.98);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.34);
+  display: grid;
+  gap: 8px;
+  z-index: 20;
+}
+
+.brew-fix-action {
+  min-width: 84px;
+  height: 32px;
+  padding: 0 12px;
+  border: 1px solid rgba(127, 198, 184, 0.28);
+  border-radius: 10px;
+  background: rgba(44, 198, 168, 0.08);
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.brew-fix-action:hover {
+  background: rgba(44, 198, 168, 0.16);
+}
+
+.brew-fix-action:disabled,
+.brew-btn-primary:disabled,
+.brew-btn-secondary:disabled {
+  opacity: 0.72;
+  cursor: default;
+}
+
+.brew-fix-action-primary {
+  background: var(--accent-primary);
+  color: #0a1a14;
+  border-color: transparent;
+}
+
+.brew-fix-action-primary:hover {
+  background: #ddeb8b;
+}
+
+.brew-fix-spinner {
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  border: 2px solid rgba(255, 255, 255, 0.28);
+  border-top-color: currentColor;
+  animation: brew-spin 0.8s linear infinite;
+}
+
+.brew-btn-primary .brew-fix-spinner {
+  border-color: rgba(10, 26, 20, 0.22);
+  border-top-color: #0a1a14;
+}
+
+.brew-fix-action-loading {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.brew-fix-progress-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: var(--text-primary);
+  font-size: 12px;
+}
+
+.brew-fix-progress-bar {
+  width: 100%;
+  height: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.brew-fix-progress-bar-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, rgba(44, 198, 168, 0.88), rgba(213, 230, 122, 0.92));
+}
+
+.brew-bug-card-grid {
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+}
