@@ -22,6 +22,7 @@
   inset: 0;
   background: linear-gradient(135deg, rgba(213, 230, 122, 0.03), transparent 48%);
   pointer-events: none;
+  z-index: 0;
 }
 
 .brew-pr-card strong {
@@ -126,7 +127,6 @@
 .brew-pr-card .brew-chip-row,
 .brew-pr-card .brew-card-footer {
   position: relative;
-  z-index: 1;
 }
 
 .brew-pr-card .brew-card-footer {
